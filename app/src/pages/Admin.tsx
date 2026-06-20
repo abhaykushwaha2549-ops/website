@@ -133,11 +133,11 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
       >
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center mb-5 shadow-lg shadow-sky-500/20">
-            <Lock className="w-7 h-7 text-white" />
+          <div className="mb-8 flex flex-col items-center">
+            <img src="/logo.png" alt="Lightinmotion Logo" className="h-20 w-auto object-contain mb-4" />
+            <h1 className="text-3xl font-bold text-white tracking-tight">Admin Access</h1>
+            <p className="text-neutral-500 text-sm mt-1">Lightinmotion Dashboard</p>
           </div>
-          <h1 className="text-2xl font-bold text-white">Admin Access</h1>
-          <p className="text-neutral-500 text-sm mt-1">Lightinmotion Dashboard</p>
         </div>
 
         <Card className="bg-white/[0.03] border border-white/10 shadow-2xl">
@@ -500,14 +500,12 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
               <a href="/" className="text-neutral-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5">
                 <ArrowLeft className="w-4 h-4" />
               </a>
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center">
-                  <Zap className="w-3.5 h-3.5 text-white" />
-                </div>
+              <a href="/" className="flex items-center gap-3">
+                <img src="/logo.png" alt="Lightinmotion Logo" className="h-8 w-auto object-contain" />
                 <span className="text-base font-semibold text-white">Lightinmotion</span>
-                <span className="text-neutral-700">/</span>
-                <span className="text-sm text-neutral-400">Admin</span>
-              </div>
+              </a>
+              <span className="text-neutral-700">/</span>
+              <span className="text-sm text-neutral-400">Admin</span>
             </div>
 
             <div className="flex items-center gap-2">
