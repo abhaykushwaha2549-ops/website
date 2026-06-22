@@ -18,6 +18,8 @@ import {
   Github,
   Twitter,
   Linkedin,
+  Instagram,
+  Youtube,
   Loader2,
   AlertCircle,
 } from 'lucide-react';
@@ -580,10 +582,14 @@ export default function Home() {
                 { icon: Github, href: '#' },
                 { icon: Twitter, href: '#' },
                 { icon: Linkedin, href: '#' },
-              ].map((social) => (
+                { icon: Instagram, href: 'https://www.instagram.com/light_in__motion/' },
+                { icon: Youtube, href: 'https://www.youtube.com/@lightinmotionrgb/shorts' },
+              ].map((social, index) => (
                 <a
-                  key={social.icon.name}
+                  key={index}
                   href={social.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-neutral-500 hover:text-white transition-colors duration-200"
                 >
                   <social.icon className="w-4 h-4" />
