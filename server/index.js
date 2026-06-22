@@ -53,14 +53,13 @@ if (USE_B2) {
   });
   console.log(`📦 Backblaze B2 storage client initialized on bucket: ${B2_BUCKET_NAME}`);
 
-  // Automatically configure CORS rules on startup so browser PUT uploads succeed
   const corsParams = {
     Bucket: B2_BUCKET_NAME,
     CORSConfiguration: {
       CORSRules: [
         {
           AllowedHeaders: ['*'],
-          AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD', 'OPTIONS'],
+          AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
           AllowedOrigins: ['*'],
           MaxAgeSeconds: 3600,
         },
