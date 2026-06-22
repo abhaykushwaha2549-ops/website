@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -23,6 +24,36 @@ let supabase = null;
 if (USE_SUPABASE) {
   const { createClient } = require('@supabase/supabase-js');
   supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+}
+
+const B2_KEY_ID = process.env.B2_KEY_ID || '';
+const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY || '';
+const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || '';
+const B2_ENDPOINT = process.env.B2_ENDPOINT || '';
+const B2_REGION = process.env.B2_REGION || '';
+
+const USE_B2 = !!(B2_KEY_ID && B2_APPLICATION_KEY && B2_BUCKET_NAME && B2_ENDPOINT && B2_REGION);
+
+let s3Client = null;
+if (USE_B2) {
+  const { S3Client } = require('@aws-sdk/client-s3');
+  
+  let endpointUrl = B2_ENDPOINT;
+  if (endpointUrl && !endpointUrl.startsWith('http://') && !endpointUrl.startsWith('https://')) {
+    endpointUrl = `https://${endpointUrl}`;
+  }
+  
+  s3Client = new S3Client({
+    endpoint: endpointUrl,
+    region: B2_REGION,
+    credentials: {
+      accessKeyId: B2_KEY_ID,
+      secretAccessKey: B2_APPLICATION_KEY,
+    },
+  });
+  console.log(`📦 Backblaze B2 storage client initialized on bucket: ${B2_BUCKET_NAME}`);
+} else {
+  console.log('⚠️  Backblaze B2 environment variables are not fully set. Cloud uploads will fail.');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,18 +226,24 @@ app.post('/api/upload/init', requireAuth, async (req, res) => {
   try {
     const storagePath = uuidv4() + ext;
 
-    // Create a signed upload URL that expires in 60 minutes (3600 seconds)
-    const { data, error } = await supabase.storage
-      .from('uploads')
-      .createSignedUploadUrl(storagePath);
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
+    if (!s3Client) {
+      return res.status(500).json({ error: 'Backblaze B2 Client is not initialized on the server.' });
     }
+
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+
+    const command = new PutObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: storagePath,
+      ContentType: 'application/octet-stream',
+    });
+
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
 
     return res.json({
       useSupabase: true,
-      signedUrl: data.signedUrl,
+      signedUrl: signedUrl,
       storagePath: storagePath,
     });
   } catch (e) {
@@ -316,13 +353,22 @@ app.get('/api/download/:id', async (req, res) => {
         .eq('id', req.params.id)
         .then(() => {});
 
-      // Create a signed URL that forces download with the original filename
-      const { data: signed, error: signErr } = await supabase.storage
-        .from('uploads')
-        .createSignedUrl(file.storage_path, 3600, { download: file.original_name });
-      if (signErr) return res.status(500).json({ error: signErr.message });
+      if (!s3Client) {
+        return res.status(500).json({ error: 'Backblaze B2 Client is not initialized on the server.' });
+      }
 
-      return res.redirect(signed.signedUrl);
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+
+      const command = new GetObjectCommand({
+        Bucket: B2_BUCKET_NAME,
+        Key: file.storage_path,
+        ResponseContentDisposition: `attachment; filename="${encodeURIComponent(file.original_name)}"`,
+      });
+
+      const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+      return res.redirect(signedUrl);
     }
 
     // ── Local disk ────────────────────────────────────────────────────────
@@ -358,7 +404,18 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
         .single();
       if (error || !file) return res.status(404).json({ error: 'File not found' });
 
-      await supabase.storage.from('uploads').remove([file.storage_path]);
+      if (s3Client) {
+        try {
+          const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+          const command = new DeleteObjectCommand({
+            Bucket: B2_BUCKET_NAME,
+            Key: file.storage_path,
+          });
+          await s3Client.send(command);
+        } catch (err) {
+          console.warn(`File ${file.storage_path} not found in Backblaze B2 during deletion.`, err.message);
+        }
+      }
       await supabase.from('files').delete().eq('id', req.params.id);
       return res.json({ success: true, id: req.params.id });
     }
