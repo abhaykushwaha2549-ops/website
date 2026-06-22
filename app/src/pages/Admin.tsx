@@ -368,7 +368,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   };
 
   // ── Process & upload file
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     if (!selectedDeviceType) {
       showNotification('Please select a compatible device type first.', 'error');
       return;
@@ -390,45 +390,139 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     setUploading(true);
     setUploadProgress(0);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('deviceType', selectedDeviceType);
+    try {
+      // Step 1: Initialize the upload (request signed URL or local fallback indicator)
+      const initRes = await fetch(`${API_BASE}/api/upload/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ fileName: file.name }),
+      });
 
-    const xhr = new XMLHttpRequest();
-
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        setUploadProgress((e.loaded / e.total) * 100);
+      if (!initRes.ok) {
+        const errData = await initRes.json();
+        throw new Error(errData.error || 'Failed to initialize upload.');
       }
-    });
 
-    xhr.addEventListener('load', () => {
-      setUploading(false);
-      setUploadProgress(0);
-      if (xhr.status === 200) {
-        const newFile: UploadedFile = JSON.parse(xhr.responseText);
-        setFiles((prev) => [newFile, ...prev]);
-        showNotification(`"${file.name}" uploaded successfully!`);
-        setSelectedDeviceType('');
-        if (inputRef.current) inputRef.current.value = '';
+      const initData = await initRes.json();
+
+      if (initData.useSupabase) {
+        // Step 2: Upload directly to Supabase Storage via PUT
+        const { signedUrl, storagePath } = initData;
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            setUploadProgress((e.loaded / e.total) * 100);
+          }
+        });
+
+        xhr.addEventListener('load', async () => {
+          if (xhr.status === 200 || xhr.status === 201) {
+            // Step 3: Finalize upload with metadata
+            try {
+              const finalizeRes = await fetch(`${API_BASE}/api/upload/finalize`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  deviceType: selectedDeviceType,
+                  displayName: file.name,
+                  storagePath,
+                  originalName: file.name,
+                  size: file.size,
+                }),
+              });
+
+              setUploading(false);
+              setUploadProgress(0);
+
+              if (finalizeRes.ok) {
+                const newFile: UploadedFile = await finalizeRes.json();
+                setFiles((prev) => [newFile, ...prev]);
+                showNotification(`"${file.name}" uploaded successfully!`);
+                setSelectedDeviceType('');
+                if (inputRef.current) inputRef.current.value = '';
+              } else {
+                const errData = await finalizeRes.json();
+                showNotification(errData.error || 'Failed to finalize upload.', 'error');
+              }
+            } catch (err: any) {
+              setUploading(false);
+              showNotification(err.message || 'Error finalizing upload.', 'error');
+            }
+          } else {
+            setUploading(false);
+            setUploadProgress(0);
+            try {
+              const err = JSON.parse(xhr.responseText);
+              showNotification(err.error || 'Direct upload failed.', 'error');
+            } catch {
+              showNotification('Direct upload failed.', 'error');
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          setUploading(false);
+          showNotification('Network error during upload to Supabase.', 'error');
+        });
+
+        xhr.open('PUT', signedUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.send(file);
+
       } else {
-        try {
-          const err = JSON.parse(xhr.responseText);
-          showNotification(err.error || 'Upload failed.', 'error');
-        } catch {
-          showNotification('Upload failed.', 'error');
-        }
+        // Fallback: Local disk upload (the traditional multipart route)
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('deviceType', selectedDeviceType);
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            setUploadProgress((e.loaded / e.total) * 100);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          setUploading(false);
+          setUploadProgress(0);
+          if (xhr.status === 200) {
+            const newFile: UploadedFile = JSON.parse(xhr.responseText);
+            setFiles((prev) => [newFile, ...prev]);
+            showNotification(`"${file.name}" uploaded successfully!`);
+            setSelectedDeviceType('');
+            if (inputRef.current) inputRef.current.value = '';
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText);
+              showNotification(err.error || 'Upload failed.', 'error');
+            } catch {
+              showNotification('Upload failed.', 'error');
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          setUploading(false);
+          showNotification('Network error during upload.', 'error');
+        });
+
+        xhr.open('POST', `${API_BASE}/api/upload`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.send(formData);
       }
-    });
-
-    xhr.addEventListener('error', () => {
+    } catch (err: any) {
       setUploading(false);
-      showNotification('Network error during upload.', 'error');
-    });
-
-    xhr.open('POST', `${API_BASE}/api/upload`);
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    xhr.send(formData);
+      showNotification(err.message || 'Failed to start upload process.', 'error');
+    }
   };
 
   // ── Delete

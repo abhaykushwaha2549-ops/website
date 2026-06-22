@@ -71,25 +71,26 @@ const requireAuth = (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MULTER  — memoryStorage for Supabase, diskStorage for local
+// MULTER  — diskStorage for local mode only (no memory storage used to avoid OOM)
 // ─────────────────────────────────────────────────────────────────────────────
 const ALLOWED_EXT = ['.apk', '.exe', '.dmg', '.zip', '.ipa'];
 
-const upload = multer({
-  storage: USE_SUPABASE
-    ? multer.memoryStorage()
-    : multer.diskStorage({
-        destination: (_, __, cb) => cb(null, UPLOADS_DIR),
-        filename:    (_, file, cb) => cb(null, uuidv4() + path.extname(file.originalname)),
-      }),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
-  fileFilter: (_, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    ALLOWED_EXT.includes(ext)
-      ? cb(null, true)
-      : cb(new Error(`File type not allowed. Supported: ${ALLOWED_EXT.join(', ')}`));
-  },
-});
+let upload = null;
+if (!USE_SUPABASE) {
+  upload = multer({
+    storage: multer.diskStorage({
+      destination: (_, __, cb) => cb(null, UPLOADS_DIR),
+      filename:    (_, file, cb) => cb(null, uuidv4() + path.extname(file.originalname)),
+    }),
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+    fileFilter: (_, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      ALLOWED_EXT.includes(ext)
+        ? cb(null, true)
+        : cb(new Error(`File type not allowed. Supported: ${ALLOWED_EXT.join(', ')}`));
+    },
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILITIES
@@ -175,48 +176,109 @@ app.get('/api/files', async (_, res) => {
   }
 });
 
-// ── POST /api/upload  (protected) ────────────────────────────────────────────
-app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
+// ── POST /api/upload/init  (protected) ───────────────────────────────────────
+app.post('/api/upload/init', requireAuth, async (req, res) => {
+  if (!USE_SUPABASE) {
+    return res.json({ useSupabase: false });
+  }
+
+  const { fileName } = req.body;
+  if (!fileName) {
+    return res.status(400).json({ error: 'fileName is required' });
+  }
+
+  const ext = path.extname(fileName).toLowerCase();
+  if (!ALLOWED_EXT.includes(ext)) {
+    return res.status(400).json({ error: `File type not allowed. Supported: ${ALLOWED_EXT.join(', ')}` });
+  }
+
+  try {
+    const storagePath = uuidv4() + ext;
+
+    // Create a signed upload URL that expires in 60 minutes (3600 seconds)
+    const { data, error } = await supabase.storage
+      .from('uploads')
+      .createSignedUploadUrl(storagePath);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.json({
+      useSupabase: true,
+      signedUrl: data.signedUrl,
+      storagePath: storagePath,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/upload/finalize  (protected) ───────────────────────────────────
+app.post('/api/upload/finalize', requireAuth, async (req, res) => {
+  if (!USE_SUPABASE) {
+    return res.status(400).json({ error: 'Finalize endpoint is only for Supabase uploads' });
+  }
+
+  const { deviceType, displayName, storagePath, originalName, size } = req.body;
+
+  const validTypes = ['android', 'iphone', 'tv', 'desktop'];
+  if (!deviceType || !validTypes.includes(deviceType)) {
+    return res.status(400).json({ error: 'Valid deviceType is required' });
+  }
+  if (!storagePath) {
+    return res.status(400).json({ error: 'storagePath is required' });
+  }
+  if (!originalName) {
+    return res.status(400).json({ error: 'originalName is required' });
+  }
+  if (typeof size !== 'number' || size <= 0) {
+    return res.status(400).json({ error: 'Valid size is required' });
+  }
+
+  try {
+    // Save metadata to Supabase DB
+    const { data, error: dbErr } = await supabase
+      .from('files')
+      .insert({
+        name:          displayName || originalName,
+        original_name: originalName,
+        storage_path:  storagePath,
+        device_type:   deviceType,
+        size:          size,
+        size_formatted:formatFileSize(size),
+        downloads:     0,
+      })
+      .select()
+      .single();
+
+    if (dbErr) {
+      return res.status(500).json({ error: dbErr.message });
+    }
+
+    return res.json(normaliseFile(data));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/upload (protected, local fallback only) ──────────────────────
+app.post('/api/upload', requireAuth, (req, res, next) => {
+  if (USE_SUPABASE) {
+    return res.status(400).json({ error: 'Direct upload is required when using Supabase.' });
+  }
+  upload.single('file')(req, res, next);
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
 
   const { deviceType, displayName } = req.body;
   const validTypes = ['android', 'iphone', 'tv', 'desktop'];
   if (!deviceType || !validTypes.includes(deviceType)) {
-    if (!USE_SUPABASE && req.file.path) fs.unlinkSync(req.file.path);
+    if (req.file.path) fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: 'Valid deviceType is required' });
   }
 
   try {
-    if (USE_SUPABASE) {
-      const ext         = path.extname(req.file.originalname);
-      const storagePath = uuidv4() + ext;
-
-      // 1. Upload binary to Supabase Storage
-      const { error: storErr } = await supabase.storage
-        .from('uploads')
-        .upload(storagePath, req.file.buffer, { contentType: 'application/octet-stream' });
-      if (storErr) return res.status(500).json({ error: storErr.message });
-
-      // 2. Save metadata to Supabase DB
-      const { data, error: dbErr } = await supabase
-        .from('files')
-        .insert({
-          name:          displayName || req.file.originalname,
-          original_name: req.file.originalname,
-          storage_path:  storagePath,
-          device_type:   deviceType,
-          size:          req.file.size,
-          size_formatted:formatFileSize(req.file.size),
-          downloads:     0,
-        })
-        .select()
-        .single();
-      if (dbErr) return res.status(500).json({ error: dbErr.message });
-
-      return res.json(normaliseFile(data));
-    }
-
-    // ── Local disk ────────────────────────────────────────────────────────
     const newFile = {
       id:           uuidv4(),
       name:         displayName || req.file.originalname,
@@ -232,7 +294,6 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => 
     db.files.unshift(newFile);
     writeDB(db);
     return res.json(newFile);
-
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
