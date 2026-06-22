@@ -234,10 +234,12 @@ export default function Home() {
                 </a>
               ))}
               <a
-                href="/admin"
+                href="https://lightinmotion-2.myshopify.com/"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-sm px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all duration-200"
               >
-                Admin
+                Visit Store
               </a>
             </motion.div>
 
@@ -273,10 +275,13 @@ export default function Home() {
                   </a>
                 ))}
                 <a
-                  href="/admin"
+                  href="https://lightinmotion-2.myshopify.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
                   className="block text-sm px-4 py-2 rounded-lg bg-white/10 text-white text-center"
                 >
-                  Admin
+                  Visit Store
                 </a>
               </div>
             </motion.div>
