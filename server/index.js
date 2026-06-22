@@ -36,7 +36,7 @@ const USE_B2 = !!(B2_KEY_ID && B2_APPLICATION_KEY && B2_BUCKET_NAME && B2_ENDPOI
 
 let s3Client = null;
 if (USE_B2) {
-  const { S3Client } = require('@aws-sdk/client-s3');
+  const { S3Client, PutBucketCorsCommand } = require('@aws-sdk/client-s3');
   
   let endpointUrl = B2_ENDPOINT;
   if (endpointUrl && !endpointUrl.startsWith('http://') && !endpointUrl.startsWith('https://')) {
@@ -52,6 +52,24 @@ if (USE_B2) {
     },
   });
   console.log(`📦 Backblaze B2 storage client initialized on bucket: ${B2_BUCKET_NAME}`);
+
+  // Automatically configure CORS rules on startup so browser PUT uploads succeed
+  const corsParams = {
+    Bucket: B2_BUCKET_NAME,
+    CORSConfiguration: {
+      CORSRules: [
+        {
+          AllowedHeaders: ['*'],
+          AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD', 'OPTIONS'],
+          AllowedOrigins: ['*'],
+          MaxAgeSeconds: 3600,
+        },
+      ],
+    },
+  };
+  s3Client.send(new PutBucketCorsCommand(corsParams))
+    .then(() => console.log('✅ Backblaze B2 CORS rules automatically set!'))
+    .catch(err => console.error('⚠️  Failed to set Backblaze B2 CORS rules on startup:', err.message));
 } else {
   console.log('⚠️  Backblaze B2 environment variables are not fully set. Cloud uploads will fail.');
 }
