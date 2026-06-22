@@ -470,11 +470,11 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
 
         xhr.addEventListener('error', () => {
           setUploading(false);
-          showNotification('Network error during upload to Supabase.', 'error');
+          showNotification('Network error during direct upload. Check browser console or CORS.', 'error');
         });
 
         xhr.open('PUT', signedUrl);
-        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
         xhr.send(file);
 
       } else {
