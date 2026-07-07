@@ -140,11 +140,32 @@ function formatDownloadCount(n: number): string {
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [files, setFiles] = useState<ApiFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [files, setFiles] = useState<ApiFile[]>(() => {
+    try {
+      const cached = localStorage.getItem('lim_files');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loadingFiles, setLoadingFiles] = useState(() => {
+    try {
+      const cached = localStorage.getItem('lim_files');
+      return cached ? false : true;
+    } catch {
+      return true;
+    }
+  });
   const [fetchError, setFetchError] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [stats, setStats] = useState<ApiStats>({ totalDownloads: 0, totalFiles: 0, platforms: 0 });
+  const [stats, setStats] = useState<ApiStats>(() => {
+    try {
+      const cached = localStorage.getItem('lim_stats');
+      return cached ? JSON.parse(cached) : { totalDownloads: 0, totalFiles: 0, platforms: 0 };
+    } catch {
+      return { totalDownloads: 0, totalFiles: 0, platforms: 0 };
+    }
+  });
 
   // Animate the download count
   const animatedDownloads = useCountUp(stats.totalDownloads);
@@ -160,7 +181,10 @@ export default function Home() {
     fetch(`${API_BASE}/api/files`)
       .then((r) => r.json())
       .then((data: ApiFile[]) => {
-        setFiles(Array.isArray(data) ? data : []);
+        if (Array.isArray(data)) {
+          setFiles(data);
+          localStorage.setItem('lim_files', JSON.stringify(data));
+        }
         setFetchError(false);
       })
       .catch(() => setFetchError(true))
@@ -172,7 +196,12 @@ export default function Home() {
     const load = () =>
       fetch(`${API_BASE}/api/stats`)
         .then((r) => r.json())
-        .then((s: ApiStats) => setStats(s))
+        .then((s: ApiStats) => {
+          if (s && typeof s.totalDownloads === 'number') {
+            setStats(s);
+            localStorage.setItem('lim_stats', JSON.stringify(s));
+          }
+        })
         .catch(() => {});
     load();
     // Refresh every 30 seconds so the count stays live
@@ -408,7 +437,7 @@ export default function Home() {
           )}
 
           {/* Error state */}
-          {!loadingFiles && fetchError && (
+          {!loadingFiles && fetchError && files.length === 0 && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -423,7 +452,7 @@ export default function Home() {
           )}
 
           {/* No files state */}
-          {!loadingFiles && !fetchError && availableDeviceTypes.length === 0 && (
+          {!loadingFiles && files.length === 0 && !fetchError && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -438,7 +467,7 @@ export default function Home() {
           )}
 
           {/* Download cards */}
-          {!loadingFiles && !fetchError && availableDeviceTypes.length > 0 && (
+          {!loadingFiles && availableDeviceTypes.length > 0 && (
             <div
               className={`grid gap-6 ${
                 availableDeviceTypes.length === 1

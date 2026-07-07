@@ -1,6 +1,7 @@
 'use client'
 
-import { Suspense, lazy } from 'react'
+import { useState, Suspense, lazy } from 'react'
+
 const Spline = lazy(() => import('@splinetool/react-spline'))
 
 interface SplineSceneProps {
@@ -9,18 +10,37 @@ interface SplineSceneProps {
 }
 
 export function SplineScene({ scene, className }: SplineSceneProps) {
+  const [isLoaded, setIsLoaded] = useState(false);
+
   return (
-    <Suspense
-      fallback={
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+    <div className={`relative w-full h-full overflow-hidden ${className || ''}`}>
+      {/* Fallback Placeholder Image - visible instantly */}
+      <div
+        className={`absolute inset-0 w-full h-full transition-opacity duration-1000 z-10 pointer-events-none ${
+          isLoaded ? 'opacity-0' : 'opacity-100'
+        }`}
+      >
+        <img
+          src="/robot-placeholder.png"
+          alt="Loading interactive 3D robot..."
+          className="w-full h-full object-cover"
+        />
+        {/* Subtle loading indicator on top of placeholder */}
+        <div className="absolute bottom-6 right-6 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 z-20">
+          <div className="w-3.5 h-3.5 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
+          <span className="text-xs text-neutral-400">Loading interactive 3D robot...</span>
         </div>
-      }
-    >
-      <Spline
-        scene={scene}
-        className={className}
-      />
-    </Suspense>
+      </div>
+
+      {/* Spline 3D Scene */}
+      <div className={`w-full h-full transition-opacity duration-1000 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
+        <Suspense fallback={null}>
+          <Spline
+            scene={scene}
+            onLoad={() => setIsLoaded(true)}
+          />
+        </Suspense>
+      </div>
+    </div>
   )
 }
