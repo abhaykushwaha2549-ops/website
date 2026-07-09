@@ -14,21 +14,19 @@ export function SplineScene({ scene, className }: SplineSceneProps) {
 
   return (
     <div className={`relative w-full h-full overflow-hidden ${className || ''}`}>
-      {/* Fallback Placeholder Image - visible instantly */}
+      {/* Fallback Premium Glowing Placeholder */}
       <div
-        className={`absolute inset-0 w-full h-full transition-opacity duration-1000 z-10 pointer-events-none ${
+        className={`absolute inset-0 w-full h-full transition-opacity duration-1000 z-10 pointer-events-none flex items-center justify-center bg-black ${
           isLoaded ? 'opacity-0' : 'opacity-100'
         }`}
       >
-        <img
-          src="/robot-placeholder.png"
-          alt="Loading interactive 3D robot..."
-          className="w-full h-full object-cover"
-        />
-        {/* Subtle loading indicator on top of placeholder */}
-        <div className="absolute bottom-6 right-6 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 z-20">
-          <div className="w-3.5 h-3.5 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
-          <span className="text-xs text-neutral-400">Loading interactive 3D robot...</span>
+        {/* Futuristic Radial Glow Accents */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.08),transparent_65%)] animate-pulse" style={{ animationDuration: '3s' }} />
+        
+        {/* Elegant Minimal Loader */}
+        <div className="relative flex flex-col items-center gap-3 z-20">
+          <div className="w-10 h-10 rounded-full border-2 border-sky-400/20 border-t-sky-400 animate-spin" />
+          <span className="text-xs font-semibold tracking-widest text-sky-400/60 uppercase">Loading 3D Experience</span>
         </div>
       </div>
 
