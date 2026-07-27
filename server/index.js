@@ -461,8 +461,17 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
       }
       await supabase.from('files').delete().eq('id', req.params.id);
       return res.json({ success: true, id: req.params.id });
-    }
+    } else {
+      const db  = readDB();
+      const idx = db.files.findIndex(f => f.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'File not found' });
 
+      const filePath = path.join(UPLOADS_DIR, db.files[idx].filename);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      db.files.splice(idx, 1);
+      writeDB(db);
+      return res.json({ success: true, id: req.params.id });
+    }
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -885,21 +894,6 @@ app.delete('/api/admin/subscriptions/:id', requireAuth, async (req, res) => {
   }
 });
 
-    // ── Local disk ────────────────────────────────────────────────────────
-    const db  = readDB();
-    const idx = db.files.findIndex(f => f.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: 'File not found' });
-
-    const filePath = path.join(UPLOADS_DIR, db.files[idx].filename);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    db.files.splice(idx, 1);
-    writeDB(db);
-    return res.json({ success: true, id: req.params.id });
-
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ERROR HANDLER
