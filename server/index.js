@@ -78,17 +78,24 @@ if (USE_B2) {
 // ─────────────────────────────────────────────────────────────────────────────
 const DB_PATH    = path.join(__dirname, 'db.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const QRS_DIR = path.join(UPLOADS_DIR, 'qrs');
+const SCREENSHOTS_DIR = path.join(UPLOADS_DIR, 'screenshots');
 
 function readDB()       { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
 function writeDB(data)  { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
 
 if (!USE_SUPABASE) {
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  if (!fs.existsSync(QRS_DIR)) fs.mkdirSync(QRS_DIR, { recursive: true });
+  if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
   if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0 }, null, 2));
+    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 49: null, 109: null, 149: null } }, null, 2));
   } else {
     const _db = readDB();
-    if (typeof _db.totalDownloads !== 'number') { _db.totalDownloads = 0; writeDB(_db); }
+    if (typeof _db.totalDownloads !== 'number') { _db.totalDownloads = 0; }
+    if (!_db.subscriptions) { _db.subscriptions = []; }
+    if (!_db.plans) { _db.plans = { 49: null, 109: null, 149: null }; }
+    writeDB(_db);
   }
 }
 
@@ -124,6 +131,9 @@ const requireAuth = (req, res, next) => {
 const ALLOWED_EXT = ['.apk', '.exe', '.dmg', '.zip', '.ipa'];
 
 let upload = null;
+let uploadScreenshot = null;
+let uploadQr = null;
+
 if (!USE_SUPABASE) {
   upload = multer({
     storage: multer.diskStorage({
@@ -137,6 +147,22 @@ if (!USE_SUPABASE) {
         ? cb(null, true)
         : cb(new Error(`File type not allowed. Supported: ${ALLOWED_EXT.join(', ')}`));
     },
+  });
+
+  uploadScreenshot = multer({
+    storage: multer.diskStorage({
+      destination: (_, __, cb) => cb(null, SCREENSHOTS_DIR),
+      filename:    (_, file, cb) => cb(null, uuidv4() + path.extname(file.originalname)),
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  });
+
+  uploadQr = multer({
+    storage: multer.diskStorage({
+      destination: (_, __, cb) => cb(null, QRS_DIR),
+      filename:    (_, file, cb) => cb(null, uuidv4() + path.extname(file.originalname)),
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   });
 }
 
@@ -436,6 +462,428 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
       await supabase.from('files').delete().eq('id', req.params.id);
       return res.json({ success: true, id: req.params.id });
     }
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBSCRIPTION & PLANS ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/plans (public)
+app.get('/api/plans', async (req, res) => {
+  try {
+    const plansData = { 49: null, 109: null, 149: null };
+    
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('plans')
+        .select('*');
+      if (error) return res.status(500).json({ error: error.message });
+      
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+      
+      for (const row of (data || [])) {
+        if (row.qr_path) {
+          try {
+            const command = new GetObjectCommand({
+              Bucket: B2_BUCKET_NAME,
+              Key: row.qr_path,
+            });
+            const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+            plansData[row.price] = url;
+          } catch (err) {
+            console.warn(`Failed to sign QR path: ${row.qr_path}`, err.message);
+          }
+        }
+      }
+    } else {
+      const db = readDB();
+      const plans = db.plans || { 49: null, 109: null, 149: null };
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      for (const price of [49, 109, 149]) {
+        if (plans[price]) {
+          plansData[price] = `${baseUrl}/uploads/qrs/${plans[price]}`;
+        }
+      }
+    }
+    return res.json(plansData);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/plans/qr/init (protected)
+app.post('/api/admin/plans/qr/init', requireAuth, async (req, res) => {
+  if (!USE_SUPABASE) {
+    return res.json({ useSupabase: false });
+  }
+  const { fileName } = req.body;
+  if (!fileName) return res.status(400).json({ error: 'fileName is required' });
+  
+  const ext = path.extname(fileName).toLowerCase();
+  const allowed = ['.png', '.jpg', '.jpeg', '.webp'];
+  if (!allowed.includes(ext)) {
+    return res.status(400).json({ error: 'Only PNG, JPG, JPEG, WEBP allowed.' });
+  }
+  
+  try {
+    const storagePath = `qrs/${uuidv4()}${ext}`;
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+    const command = new PutObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: storagePath,
+      ContentType: 'image/jpeg',
+    });
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    return res.json({
+      useSupabase: true,
+      signedUrl,
+      storagePath,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/plans/qr/finalize (protected)
+app.post('/api/admin/plans/qr/finalize', requireAuth, async (req, res) => {
+  const { price, storagePath } = req.body;
+  if (!price || !storagePath) return res.status(400).json({ error: 'price and storagePath are required' });
+  if (![49, 109, 149].includes(Number(price))) return res.status(400).json({ error: 'Invalid price' });
+  
+  try {
+    const { data, error } = await supabase
+      .from('plans')
+      .upsert({
+        price: Number(price),
+        qr_path: storagePath,
+      })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/plans/qr/local (protected, local fallback)
+app.post('/api/admin/plans/qr/local', requireAuth, (req, res, next) => {
+  if (USE_SUPABASE) return res.status(400).json({ error: 'Local upload not supported in Supabase mode' });
+  uploadQr.single('file')(req, res, next);
+}, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+  const { price } = req.body;
+  if (!price || ![49, 109, 149].includes(Number(price))) {
+    if (req.file.path) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'Valid price is required' });
+  }
+  
+  const db = readDB();
+  db.plans = db.plans || { 49: null, 109: null, 149: null };
+  const oldFile = db.plans[price];
+  if (oldFile) {
+    const oldPath = path.join(QRS_DIR, oldFile);
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  db.plans[price] = req.file.filename;
+  writeDB(db);
+  res.json({ success: true, qrFilename: req.file.filename });
+});
+
+// GET /api/subscription/check (public)
+app.get('/api/subscription/check', async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: 'Email query param is required' });
+  
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('email', email.trim().toLowerCase());
+      
+      if (error) return res.status(500).json({ error: error.message });
+      if (!data || data.length === 0) {
+        return res.json({ status: 'none', plan: null });
+      }
+      
+      const sorted = data.sort((a, b) => {
+        if (a.status === 'approved' && b.status !== 'approved') return -1;
+        if (b.status === 'approved' && a.status !== 'approved') return 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      const sub = sorted[0];
+      return res.json({ status: sub.status, plan: sub.plan_price });
+    } else {
+      const db = readDB();
+      const subs = db.subscriptions || [];
+      const matches = subs.filter(s => s.email.trim().toLowerCase() === email.trim().toLowerCase());
+      if (matches.length === 0) {
+        return res.json({ status: 'none', plan: null });
+      }
+      const sorted = matches.sort((a, b) => {
+        if (a.status === 'approved' && b.status !== 'approved') return -1;
+        if (b.status === 'approved' && a.status !== 'approved') return 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      const sub = sorted[0];
+      return res.json({ status: sub.status, plan: sub.planPrice });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/subscription/init (public)
+app.post('/api/subscription/init', async (req, res) => {
+  if (!USE_SUPABASE) {
+    return res.json({ useSupabase: false });
+  }
+  const { fileName } = req.body;
+  if (!fileName) return res.status(400).json({ error: 'fileName is required' });
+  
+  const ext = path.extname(fileName).toLowerCase();
+  const allowed = ['.png', '.jpg', '.jpeg', '.webp'];
+  if (!allowed.includes(ext)) {
+    return res.status(400).json({ error: 'Only PNG, JPG, JPEG, WEBP allowed.' });
+  }
+  
+  try {
+    const storagePath = `screenshots/${uuidv4()}${ext}`;
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+    const command = new PutObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: storagePath,
+      ContentType: 'image/jpeg',
+    });
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    return res.json({
+      useSupabase: true,
+      signedUrl,
+      storagePath,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/subscription/finalize (public)
+app.post('/api/subscription/finalize', async (req, res) => {
+  const { name, email, planPrice, storagePath } = req.body;
+  if (!name || !email || !planPrice || !storagePath) {
+    return res.status(400).json({ error: 'name, email, planPrice, storagePath are required' });
+  }
+  if (![49, 109, 149].includes(Number(planPrice))) {
+    return res.status(400).json({ error: 'Invalid plan price' });
+  }
+  
+  try {
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .upsert({
+        name,
+        email: email.trim().toLowerCase(),
+        plan_price: Number(planPrice),
+        screenshot_path: storagePath,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      }, { onConflict: 'email' })
+      .select()
+      .single();
+      
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ success: true, data });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/subscription/upload-local (public, local fallback)
+app.post('/api/subscription/upload-local', (req, res, next) => {
+  if (USE_SUPABASE) return res.status(400).json({ error: 'Local upload not supported in Supabase mode' });
+  uploadScreenshot.single('file')(req, res, next);
+}, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+  const { name, email, planPrice } = req.body;
+  if (!name || !email || !planPrice) {
+    if (req.file.path) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'name, email, planPrice are required' });
+  }
+  
+  const db = readDB();
+  const sub = {
+    id: uuidv4(),
+    name,
+    email: email.trim().toLowerCase(),
+    planPrice: Number(planPrice),
+    filename: req.file.filename,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  
+  db.subscriptions = (db.subscriptions || []).filter(s => s.email !== sub.email);
+  db.subscriptions.push(sub);
+  writeDB(db);
+  res.json({ success: true, data: sub });
+});
+
+// GET /api/admin/subscriptions (protected)
+app.get('/api/admin/subscriptions', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return res.status(500).json({ error: error.message });
+      
+      const subs = [];
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+      
+      for (const row of (data || [])) {
+        let screenshotUrl = '';
+        if (row.screenshot_path) {
+          try {
+            const command = new GetObjectCommand({
+              Bucket: B2_BUCKET_NAME,
+              Key: row.screenshot_path,
+            });
+            screenshotUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+          } catch (err) {
+            console.warn(`Failed to sign screenshot path: ${row.screenshot_path}`, err.message);
+          }
+        }
+        subs.push({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          planPrice: row.plan_price,
+          screenshotPath: row.screenshot_path,
+          screenshotUrl: screenshotUrl,
+          status: row.status,
+          createdAt: row.created_at,
+          approvedAt: row.approved_at,
+        });
+      }
+      return res.json(subs);
+    } else {
+      const db = readDB();
+      const subs = db.subscriptions || [];
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const result = subs.map(sub => ({
+        ...sub,
+        planPrice: sub.planPrice,
+        createdAt: sub.createdAt,
+        screenshotUrl: `${baseUrl}/uploads/screenshots/${sub.filename}`,
+      }));
+      result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return res.json(result);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/subscriptions/approve/:id (protected)
+app.post('/api/admin/subscriptions/approve/:id', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .eq('id', req.params.id)
+        .select()
+        .single();
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ success: true, data });
+    } else {
+      const db = readDB();
+      const idx = db.subscriptions.findIndex(s => s.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Subscription not found' });
+      db.subscriptions[idx].status = 'approved';
+      db.subscriptions[idx].approvedAt = new Date().toISOString();
+      writeDB(db);
+      return res.json({ success: true, data: db.subscriptions[idx] });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/subscriptions/reject/:id (protected)
+app.post('/api/admin/subscriptions/reject/:id', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .update({ status: 'rejected' })
+        .eq('id', req.params.id)
+        .select()
+        .single();
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ success: true, data });
+    } else {
+      const db = readDB();
+      const idx = db.subscriptions.findIndex(s => s.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Subscription not found' });
+      db.subscriptions[idx].status = 'rejected';
+      writeDB(db);
+      return res.json({ success: true, data: db.subscriptions[idx] });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/admin/subscriptions/:id (protected)
+app.delete('/api/admin/subscriptions/:id', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data: sub, error: fetchErr } = await supabase
+        .from('subscriptions')
+        .select('screenshot_path')
+        .eq('id', req.params.id)
+        .single();
+      if (fetchErr || !sub) return res.status(404).json({ error: 'Subscription not found' });
+      
+      if (s3Client && sub.screenshot_path) {
+        try {
+          const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+          const command = new DeleteObjectCommand({
+            Bucket: B2_BUCKET_NAME,
+            Key: sub.screenshot_path,
+          });
+          await s3Client.send(command);
+        } catch (err) {
+          console.warn(`Screenshot file ${sub.screenshot_path} not found in B2 during deletion.`, err.message);
+        }
+      }
+      await supabase.from('subscriptions').delete().eq('id', req.params.id);
+      return res.json({ success: true, id: req.params.id });
+    } else {
+      const db = readDB();
+      const idx = db.subscriptions.findIndex(s => s.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Subscription not found' });
+      
+      const filePath = path.join(SCREENSHOTS_DIR, db.subscriptions[idx].filename);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      
+      db.subscriptions.splice(idx, 1);
+      writeDB(db);
+      return res.json({ success: true, id: req.params.id });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
     // ── Local disk ────────────────────────────────────────────────────────
     const db  = readDB();

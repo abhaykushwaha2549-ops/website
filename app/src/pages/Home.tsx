@@ -22,6 +22,14 @@ import {
   Youtube,
   Loader2,
   AlertCircle,
+  CheckCircle,
+  XCircle,
+  Upload,
+  ArrowLeft,
+  Clock,
+  RefreshCw,
+  Check,
+  QrCode,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -167,6 +175,35 @@ export default function Home() {
     }
   });
 
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('lim_user_email');
+    } catch {
+      return null;
+    }
+  });
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'approved' | 'pending' | 'rejected' | 'none' | null>(null);
+  const [userPlan, setUserPlan] = useState<number | null>(() => {
+    try {
+      const plan = localStorage.getItem('lim_user_plan');
+      return plan ? Number(plan) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [checkingSubscription, setCheckingSubscription] = useState(false);
+
+  // Checkout states
+  const [checkoutPlan, setCheckoutPlan] = useState<number | null>(null);
+  const [checkoutStep, setCheckoutStep] = useState<'plans' | 'details' | 'payment' | 'submitting' | 'done'>('plans');
+  const [checkoutName, setCheckoutName] = useState('');
+  const [checkoutEmail, setCheckoutEmail] = useState('');
+  const [checkoutScreenshot, setCheckoutScreenshot] = useState<File | null>(null);
+  const [uploadingScreenshotProgress, setUploadingScreenshotProgress] = useState(0);
+  const [plansQrs, setPlansQrs] = useState<Record<number, string | null>>({ 49: null, 109: null, 149: null });
+  const [subGateTab, setSubGateTab] = useState<'subscribe' | 'access'>('subscribe');
+  const [accessEmailInput, setAccessEmailInput] = useState('');
+
   // Animate the download count
   const animatedDownloads = useCountUp(stats.totalDownloads);
 
@@ -209,10 +246,192 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  // Get the latest file for each device type that has at least one file
-  const availableDeviceTypes = (Object.keys(deviceTypeConfig) as DeviceType[]).filter((type) =>
-    files.some((f) => f.deviceType === type)
-  );
+  // Fetch plan QRs
+  useEffect(() => {
+    fetch(`${API_BASE}/api/plans`)
+      .then((res) => {
+        if (res.ok) return res.json();
+        throw new Error();
+      })
+      .then((data) => setPlansQrs(data))
+      .catch(() => {});
+  }, []);
+
+  const checkSubscription = async (emailToCheck: string, showNotificationError = false) => {
+    if (!emailToCheck.trim()) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+    setCheckingSubscription(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/subscription/check?email=${encodeURIComponent(emailToCheck.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSubscriptionStatus(data.status);
+        if (data.status === 'approved') {
+          setUserPlan(data.plan);
+          localStorage.setItem('lim_user_email', emailToCheck.trim());
+          localStorage.setItem('lim_user_plan', data.plan.toString());
+        } else {
+          setUserPlan(null);
+          localStorage.removeItem('lim_user_plan');
+          if (data.status === 'none') {
+            if (showNotificationError) alert('No subscription found for this email.');
+          } else {
+            localStorage.setItem('lim_user_email', emailToCheck.trim());
+          }
+        }
+      } else {
+        if (showNotificationError) alert('Failed to check subscription status.');
+      }
+    } catch {
+      if (showNotificationError) alert('Failed to check subscription status.');
+    }
+    setCheckingSubscription(false);
+  };
+
+  useEffect(() => {
+    if (verifiedEmail) {
+      checkSubscription(verifiedEmail);
+    } else {
+      setSubscriptionStatus('none');
+    }
+  }, [verifiedEmail]);
+
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!checkoutName || !checkoutEmail || !checkoutScreenshot || !checkoutPlan) {
+      alert('All fields and the payment screenshot are required!');
+      return;
+    }
+    setCheckoutStep('submitting');
+    setUploadingScreenshotProgress(0);
+
+    try {
+      // Step 1: Init screenshot upload
+      const initRes = await fetch(`${API_BASE}/api/subscription/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: checkoutScreenshot.name }),
+      });
+
+      if (!initRes.ok) {
+        throw new Error('Failed to initialize upload');
+      }
+
+      const initData = await initRes.json();
+
+      if (initData.useSupabase) {
+        // Direct upload to B2 via signed URL
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', initData.signedUrl);
+        xhr.setRequestHeader('Content-Type', 'image/jpeg');
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            setUploadingScreenshotProgress((e.loaded / e.total) * 100);
+          }
+        };
+
+        xhr.onload = async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            // Step 3: Finalize
+            const finRes = await fetch(`${API_BASE}/api/subscription/finalize`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: checkoutName,
+                email: checkoutEmail.trim().toLowerCase(),
+                planPrice: checkoutPlan,
+                storagePath: initData.storagePath,
+              }),
+            });
+            if (finRes.ok) {
+              setCheckoutStep('done');
+              setVerifiedEmail(checkoutEmail.trim());
+              setSubscriptionStatus('pending');
+              localStorage.setItem('lim_user_email', checkoutEmail.trim());
+            } else {
+              const errData = await finRes.json();
+              alert(errData.error || 'Failed to submit payment details.');
+              setCheckoutStep('payment');
+            }
+          } else {
+            alert('Failed to upload screenshot to server.');
+            setCheckoutStep('payment');
+          }
+        };
+
+        xhr.onerror = () => {
+          alert('Network error during upload.');
+          setCheckoutStep('payment');
+        };
+
+        xhr.send(checkoutScreenshot);
+      } else {
+        // Local mode fallback
+        const formData = new FormData();
+        formData.append('file', checkoutScreenshot);
+        formData.append('name', checkoutName);
+        formData.append('email', checkoutEmail.trim().toLowerCase());
+        formData.append('planPrice', checkoutPlan.toString());
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/api/subscription/upload-local`);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            setUploadingScreenshotProgress((e.loaded / e.total) * 100);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            setCheckoutStep('done');
+            setVerifiedEmail(checkoutEmail.trim());
+            setSubscriptionStatus('pending');
+            localStorage.setItem('lim_user_email', checkoutEmail.trim());
+          } else {
+            alert('Upload failed. Check server console.');
+            setCheckoutStep('payment');
+          }
+        };
+
+        xhr.onerror = () => {
+          alert('Network error during upload.');
+          setCheckoutStep('payment');
+        };
+
+        xhr.send(formData);
+      }
+    } catch (err: any) {
+      alert(err.message || 'An error occurred during submission.');
+      setCheckoutStep('payment');
+    }
+  };
+
+  const handleLogoutSubscription = () => {
+    localStorage.removeItem('lim_user_email');
+    localStorage.removeItem('lim_user_plan');
+    setVerifiedEmail(null);
+    setUserPlan(null);
+    setSubscriptionStatus('none');
+    setCheckoutStep('plans');
+    setCheckoutPlan(null);
+  };
+
+  // Get the latest file for each device type that has at least one file, filtered by plan
+  const allowedTypesByPlan = (() => {
+    if (subscriptionStatus !== 'approved' || userPlan === null) return [];
+    if (userPlan === 149) return ['android', 'iphone', 'tv', 'desktop'];
+    if (userPlan === 109) return ['android', 'iphone', 'desktop'];
+    if (userPlan === 49) return ['desktop'];
+    return [];
+  })();
+
+  const availableDeviceTypes = (Object.keys(deviceTypeConfig) as DeviceType[])
+    .filter((type) => allowedTypesByPlan.includes(type))
+    .filter((type) => files.some((f) => f.deviceType === type));
 
   const getLatestFile = (type: DeviceType) =>
     files.find((f) => f.deviceType === type) ?? null;
@@ -428,42 +647,438 @@ export default function Home() {
             </p>
           </motion.div>
 
-          {/* Loading state */}
-          {loadingFiles && (
+          {/* ── Subscriptions Check Loader ── */}
+          {checkingSubscription && (
             <div className="flex flex-col items-center justify-center py-20 gap-4">
               <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
-              <p className="text-sm text-neutral-500">Loading available downloads...</p>
+              <p className="text-sm text-neutral-500">Verifying your subscription status...</p>
             </div>
           )}
 
-          {/* Error state */}
-          {!loadingFiles && fetchError && files.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center py-20 gap-3"
-            >
-              <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-400" />
+          {/* ── Approved subscriber view: show actual downloads list ── */}
+          {!checkingSubscription && subscriptionStatus === 'approved' && (
+            <>
+              {/* Subscriber Banner */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 mb-8 max-w-2xl mx-auto">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs text-neutral-500">Active Approved Subscriber</p>
+                    <p className="text-sm font-semibold text-white truncate max-w-[200px] sm:max-w-[300px]">
+                      {verifiedEmail} <span className="text-emerald-400 font-medium">· Plan {userPlan}/-</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleLogoutSubscription}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-neutral-400 hover:text-white transition-all"
+                >
+                  Change Account
+                </button>
               </div>
-              <p className="text-sm text-neutral-400">Could not reach the server</p>
-              <p className="text-xs text-neutral-600">Make sure the backend is running on port 3001</p>
+
+              {/* Loading state */}
+              {loadingFiles && (
+                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                  <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+                  <p className="text-sm text-neutral-500">Loading available downloads...</p>
+                </div>
+              )}
+
+              {/* Error state */}
+              {!loadingFiles && fetchError && files.length === 0 && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-20 gap-3"
+                >
+                  <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
+                    <AlertCircle className="w-6 h-6 text-red-400" />
+                  </div>
+                  <p className="text-sm text-neutral-400">Could not reach the server</p>
+                  <p className="text-xs text-neutral-600">Make sure the backend is running on port 3001</p>
+                </motion.div>
+              )}
+
+              {/* No files state */}
+              {!loadingFiles && files.length === 0 && !fetchError && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-20 gap-3"
+                >
+                  <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center">
+                    <Download className="w-6 h-6 text-neutral-600" />
+                  </div>
+                  <p className="text-sm text-neutral-500">No downloads available yet</p>
+                  <p className="text-xs text-neutral-700">Check back soon for new releases</p>
+                </motion.div>
+              )}
+            </>
+          )}
+
+          {/* ── Pending Verification View ── */}
+          {!checkingSubscription && subscriptionStatus === 'pending' && (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-md mx-auto p-6 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-center space-y-4"
+            >
+              <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto">
+                <Clock className="w-6 h-6 text-amber-400 animate-pulse" />
+              </div>
+              <h3 className="text-lg font-bold text-white">Subscription Verification Pending</h3>
+              <p className="text-sm text-neutral-400 leading-relaxed">
+                Your payment screenshot for <span className="text-white font-medium">{verifiedEmail}</span> is being verified by our administrators. 
+                This usually takes a few minutes.
+              </p>
+              <div className="flex flex-col gap-2.5 pt-2">
+                <button
+                  onClick={() => checkSubscription(verifiedEmail!)}
+                  className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-semibold flex items-center justify-center gap-1.5 transition-all text-sm"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh / Check Status
+                </button>
+                <button
+                  onClick={handleLogoutSubscription}
+                  className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-all text-xs font-semibold"
+                >
+                  Change Email / Re-subscribe
+                </button>
+              </div>
             </motion.div>
           )}
 
-          {/* No files state */}
-          {!loadingFiles && files.length === 0 && !fetchError && (
+          {/* ── Rejected Subscription View ── */}
+          {!checkingSubscription && subscriptionStatus === 'rejected' && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center py-20 gap-3"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-md mx-auto p-6 rounded-2xl border border-red-500/20 bg-red-500/5 text-center space-y-4"
             >
-              <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center">
-                <Download className="w-6 h-6 text-neutral-600" />
+              <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto">
+                <XCircle className="w-6 h-6 text-red-400" />
               </div>
-              <p className="text-sm text-neutral-500">No downloads available yet</p>
-              <p className="text-xs text-neutral-700">Check back soon for new releases</p>
+              <h3 className="text-lg font-bold text-white">Payment Verification Failed</h3>
+              <p className="text-sm text-neutral-400 leading-relaxed">
+                We were unable to confirm the payment screenshot for <span className="text-white font-medium">{verifiedEmail}</span>. 
+                Please try subscribing again with a valid transaction receipt.
+              </p>
+              <div className="flex flex-col gap-2.5 pt-2">
+                <button
+                  onClick={handleLogoutSubscription}
+                  className="w-full py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold transition-all text-sm animate-pulse"
+                >
+                  Try Again / Re-subscribe
+                </button>
+                <button
+                  onClick={handleLogoutSubscription}
+                  className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-all text-xs font-semibold"
+                >
+                  Switch Email
+                </button>
+              </div>
             </motion.div>
+          )}
+
+          {/* ── Checkout / Subscription Gate View ── */}
+          {!checkingSubscription && subscriptionStatus === 'none' && (
+            <div className="max-w-4xl mx-auto">
+              {/* Tab Selector */}
+              <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-8 max-w-xs mx-auto">
+                <button
+                  onClick={() => setSubGateTab('subscribe')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    subGateTab === 'subscribe'
+                      ? 'bg-white/10 text-white shadow'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Subscribe
+                </button>
+                <button
+                  onClick={() => setSubGateTab('access')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    subGateTab === 'access'
+                      ? 'bg-white/10 text-white shadow'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  Enter Email
+                </button>
+              </div>
+
+              {subGateTab === 'access' ? (
+                /* Already Subscribed Access Gate */
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="max-w-md mx-auto p-6 rounded-2xl border border-white/5 bg-white/[0.01] space-y-4"
+                >
+                  <div className="text-center">
+                    <h3 className="text-base font-bold text-white">Access Downloads</h3>
+                    <p className="text-xs text-neutral-500 mt-1">Enter your registered email address to unlock downloads</p>
+                  </div>
+                  <div className="space-y-3.5 pt-2">
+                    <input
+                      type="email"
+                      placeholder="Enter email address"
+                      value={accessEmailInput}
+                      onChange={(e) => setAccessEmailInput(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-sky-500 transition-colors"
+                    />
+                    <button
+                      onClick={() => checkSubscription(accessEmailInput, true)}
+                      className="w-full py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-sm"
+                    >
+                      Check Access
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                /* Purchase Subscription Step-by-Step Checkout */
+                <div className="space-y-8">
+                  {checkoutStep === 'plans' && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="grid gap-6 md:grid-cols-3"
+                    >
+                      {[
+                        {
+                          price: 49,
+                          title: 'Desktop App Plan',
+                          desc: 'Essential plan designed exclusively for computer users.',
+                          benefits: ['Access to Desktop App', 'Windows, macOS, Linux', 'Regular software updates'],
+                        },
+                        {
+                          price: 109,
+                          title: 'Mobile & Desktop Plan',
+                          desc: 'Dual access plan for both mobile and desktop convenience.',
+                          benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Regular software updates'],
+                        },
+                        {
+                          price: 149,
+                          title: 'All-in-One Full Plan',
+                          desc: 'All-inclusive premium access for every device.',
+                          benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Access to TV App (Android TV, Fire TV)', 'Priority customer support', 'Regular software updates'],
+                        },
+                      ].map((plan) => (
+                        <Card
+                          key={plan.price}
+                          className="bg-white/[0.01] border-white/5 flex flex-col justify-between h-full p-6 hover:border-white/10 transition-colors group cursor-pointer"
+                          onClick={() => {
+                            setCheckoutPlan(plan.price);
+                            setCheckoutStep('details');
+                          }}
+                        >
+                          <div className="space-y-4">
+                            <h3 className="text-lg font-bold text-white group-hover:text-sky-400 transition-colors">
+                              {plan.title}
+                            </h3>
+                            <p className="text-xs text-neutral-500 leading-relaxed">{plan.desc}</p>
+                            <div className="text-2xl font-bold text-white pt-2">
+                              {plan.price} /- <span className="text-xs text-neutral-500 font-normal">one-time</span>
+                            </div>
+                            <ul className="space-y-2 pt-4 border-t border-white/5">
+                              {plan.benefits.map((b, i) => (
+                                <li key={i} className="flex items-center gap-2 text-xs text-neutral-400">
+                                  <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                  <span>{b}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <button className="w-full mt-6 py-2.5 rounded-xl bg-white/5 group-hover:bg-white group-hover:text-black text-white font-semibold transition-all text-xs border border-white/10 group-hover:border-transparent">
+                            Select Plan
+                          </button>
+                        </Card>
+                      ))}
+                    </motion.div>
+                  )}
+
+                  {checkoutStep === 'details' && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="max-w-md mx-auto p-6 rounded-2xl border border-white/5 bg-white/[0.01] space-y-4 text-left"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <button
+                          onClick={() => setCheckoutStep('plans')}
+                          className="p-1 rounded bg-white/5 text-neutral-400 hover:text-white transition-all"
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-sm font-semibold text-white">Back to Plans</span>
+                      </div>
+                      <h3 className="text-base font-bold text-white">Enter Subscription Details</h3>
+                      <div className="space-y-4 pt-2">
+                        <div>
+                          <label className="text-xs text-neutral-500 block mb-1.5 font-medium">Your Name *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="John Doe"
+                            value={checkoutName}
+                            onChange={(e) => setCheckoutName(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-sky-500 transition-colors"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-neutral-500 block mb-1.5 font-medium">Email Address (for download access) *</label>
+                          <input
+                            type="email"
+                            required
+                            placeholder="johndoe@example.com"
+                            value={checkoutEmail}
+                            onChange={(e) => setCheckoutEmail(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-sky-500 transition-colors"
+                          />
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!checkoutName || !checkoutEmail) {
+                              alert('Please fill in all fields!');
+                              return;
+                            }
+                            setCheckoutStep('payment');
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-sm"
+                        >
+                          Continue to Payment
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {checkoutStep === 'payment' && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="max-w-md mx-auto p-6 rounded-2xl border border-white/5 bg-white/[0.01] space-y-4 text-left"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <button
+                          onClick={() => setCheckoutStep('details')}
+                          className="p-1 rounded bg-white/5 text-neutral-400 hover:text-white transition-all"
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-sm font-semibold text-white">Back to Details</span>
+                      </div>
+                      
+                      <div className="text-center space-y-2">
+                        <h3 className="text-base font-bold text-white">Scan & Pay {checkoutPlan}/-</h3>
+                        <p className="text-xs text-neutral-500 leading-relaxed">
+                          Scan the QR code below using any UPI app (Google Pay, PhonePe, Paytm, etc.) to complete payment.
+                        </p>
+                      </div>
+
+                      <div className="w-44 h-44 bg-white border border-white/15 rounded-xl flex items-center justify-center overflow-hidden mx-auto mb-4 p-2">
+                        {plansQrs[checkoutPlan!] ? (
+                          <img
+                            src={plansQrs[checkoutPlan!] || undefined}
+                            alt={`Plan ${checkoutPlan} UPI QR`}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <div className="text-center p-3">
+                            <QrCode className="w-8 h-8 text-neutral-400 mx-auto mb-2" />
+                            <span className="text-[10px] text-neutral-500 leading-tight block">
+                              Waiting for Admin to upload QR code...
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs text-neutral-500 block mb-1.5 font-medium">
+                            Upload Payment Screenshot *
+                          </label>
+                          <div className="relative border-2 border-dashed border-white/15 hover:border-white/25 rounded-xl p-4 text-center cursor-pointer bg-white/[0.01]">
+                            <input
+                              type="file"
+                              required
+                              accept="image/png, image/jpeg, image/jpg, image/webp"
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  setCheckoutScreenshot(e.target.files[0]);
+                                }
+                              }}
+                            />
+                            <div className="space-y-1">
+                              <Upload className="w-5 h-5 text-neutral-500 mx-auto" />
+                              <p className="text-xs font-semibold text-white">
+                                {checkoutScreenshot ? checkoutScreenshot.name : 'Select or drop payment screenshot'}
+                              </p>
+                              <p className="text-[10px] text-neutral-600">PNG, JPG, JPEG, WEBP up to 10MB</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleCheckoutSubmit}
+                          disabled={!checkoutScreenshot}
+                          className="w-full py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Submit Screenshot
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {checkoutStep === 'submitting' && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="max-w-md mx-auto p-6 rounded-2xl border border-white/5 bg-white/[0.01] text-center space-y-4"
+                    >
+                      <Loader2 className="w-8 h-8 text-sky-400 animate-spin mx-auto" />
+                      <h3 className="text-base font-bold text-white">Submitting Payment Verification</h3>
+                      <div className="max-w-xs mx-auto bg-white/5 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full transition-all duration-300"
+                          style={{ width: `${uploadingScreenshotProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-neutral-500">Uploading screenshot... {Math.round(uploadingScreenshotProgress)}%</p>
+                    </motion.div>
+                  )}
+
+                  {checkoutStep === 'done' && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="max-w-md mx-auto p-6 rounded-2xl border border-white/5 bg-white/[0.01] text-center space-y-4"
+                    >
+                      <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
+                        <CheckCircle className="w-6 h-6 text-emerald-400" />
+                      </div>
+                      <h3 className="text-lg font-bold text-white">Screenshot Uploaded Successfully!</h3>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        Your payment verification has been submitted. Our administrators are currently verifying your payment screenshot. 
+                        Once approved, you will be able to access your downloads using <span className="text-white">{checkoutEmail}</span>.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setCheckoutStep('plans');
+                          setCheckoutPlan(null);
+                        }}
+                        className="w-full mt-4 py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-sm"
+                      >
+                        Okay, got it
+                      </button>
+                    </motion.div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Download cards */}

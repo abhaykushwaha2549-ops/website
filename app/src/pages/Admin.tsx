@@ -23,6 +23,12 @@ import {
   LogOut,
   ChevronDown,
   RefreshCw,
+  Loader2,
+  QrCode,
+  Coins,
+  Users,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -315,6 +321,20 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const [activeTab, setActiveTab] = useState<'files' | 'subscriptions' | 'qrs'>('files');
+
+  // Subscriptions states
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [loadingSubs, setLoadingSubs] = useState(false);
+  const [subFilter, setSubFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [selectedScreenshotUrl, setSelectedScreenshotUrl] = useState<string | null>(null);
+
+  // Plans/QRs states
+  const [plans, setPlans] = useState<{ 49: string | null; 109: string | null; 149: string | null }>({ 49: null, 109: null, 149: null });
+  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [uploadingQrPlan, setUploadingQrPlan] = useState<number | null>(null);
+  const [uploadingQrProgress, setUploadingQrProgress] = useState(0);
+
   const authHeaders = { Authorization: `Bearer ${token}` };
 
   // ── Fetch files
@@ -331,9 +351,51 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     setLoading(false);
   };
 
+  // ── Fetch subscriptions
+  const fetchSubscriptions = async () => {
+    setLoadingSubs(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscriptions`, {
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSubscriptions(data);
+      } else {
+        showNotification('Failed to load subscriptions.', 'error');
+      }
+    } catch {
+      showNotification('Failed to load subscriptions.', 'error');
+    }
+    setLoadingSubs(false);
+  };
+
+  // ── Fetch plans
+  const fetchPlans = async () => {
+    setLoadingPlans(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/plans`);
+      if (res.ok) {
+        const data = await res.json();
+        setPlans(data);
+      }
+    } catch {
+      showNotification('Failed to load plan QR codes.', 'error');
+    }
+    setLoadingPlans(false);
+  };
+
   useEffect(() => {
     fetchFiles();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'subscriptions') {
+      fetchSubscriptions();
+    } else if (activeTab === 'qrs') {
+      fetchPlans();
+    }
+  }, [activeTab]);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -558,6 +620,165 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const totalSizeMB = files.reduce((acc, f) => acc + (f.size || 0), 0) / (1024 * 1024);
   const lastUpload = files[0] ? new Date(files[0].uploadedAt).toLocaleDateString() : 'N/A';
 
+  const handleApproveSub = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscriptions/approve/${id}`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        showNotification('Subscription approved successfully!');
+        fetchSubscriptions();
+      } else {
+        showNotification('Failed to approve subscription.', 'error');
+      }
+    } catch {
+      showNotification('Failed to approve subscription.', 'error');
+    }
+  };
+
+  const handleRejectSub = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscriptions/reject/${id}`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        showNotification('Subscription rejected.');
+        fetchSubscriptions();
+      } else {
+        showNotification('Failed to reject subscription.', 'error');
+      }
+    } catch {
+      showNotification('Failed to reject subscription.', 'error');
+    }
+  };
+
+  const handleDeleteSub = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this subscription record?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/subscriptions/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        showNotification('Subscription record deleted.');
+        fetchSubscriptions();
+      } else {
+        showNotification('Failed to delete subscription.', 'error');
+      }
+    } catch {
+      showNotification('Failed to delete subscription.', 'error');
+    }
+  };
+
+  const handleUploadQr = async (price: number, file: File) => {
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      showNotification('Only PNG, JPG, JPEG, or WEBP files allowed.', 'error');
+      return;
+    }
+    setUploadingQrPlan(price);
+    setUploadingQrProgress(0);
+
+    try {
+      const initRes = await fetch(`${API_BASE}/api/admin/plans/qr/init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({ fileName: file.name }),
+      });
+
+      if (!initRes.ok) {
+        throw new Error('Failed to initialize upload');
+      }
+
+      const initData = await initRes.json();
+
+      if (initData.useSupabase) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', initData.signedUrl);
+        xhr.setRequestHeader('Content-Type', 'image/jpeg');
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            setUploadingQrProgress((e.loaded / e.total) * 100);
+          }
+        };
+
+        xhr.onload = async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const finRes = await fetch(`${API_BASE}/api/admin/plans/qr/finalize`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders,
+              },
+              body: JSON.stringify({ price, storagePath: initData.storagePath }),
+            });
+            if (finRes.ok) {
+              showNotification(`QR Code for Plan ${price}/- updated!`);
+              fetchPlans();
+            } else {
+              showNotification('Failed to finalize QR code upload', 'error');
+            }
+          } else {
+            showNotification('Failed to upload image to storage server', 'error');
+          }
+          setUploadingQrPlan(null);
+        };
+
+        xhr.onerror = () => {
+          showNotification('Network error during B2 upload', 'error');
+          setUploadingQrPlan(null);
+        };
+
+        xhr.send(file);
+      } else {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('price', price.toString());
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/api/admin/plans/qr/local`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            setUploadingQrProgress((e.loaded / e.total) * 100);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            showNotification(`QR Code for Plan ${price}/- updated!`);
+            fetchPlans();
+          } else {
+            showNotification('Upload failed. Check server console.', 'error');
+          }
+          setUploadingQrPlan(null);
+        };
+
+        xhr.onerror = () => {
+          showNotification('Network error during local upload', 'error');
+          setUploadingQrPlan(null);
+        };
+
+        xhr.send(formData);
+      }
+    } catch (e: any) {
+      showNotification(e.message || 'An error occurred during upload', 'error');
+      setUploadingQrPlan(null);
+    }
+  };
+
+  const filteredSubs = subscriptions.filter((sub) => {
+    if (subFilter === 'all') return true;
+    return sub.status === subFilter;
+  });
+
   return (
     <div className="min-h-screen bg-black text-white">
       {/* Toast notification */}
@@ -605,9 +826,13 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
             <div className="flex items-center gap-2">
               <button
                 id="refresh-files"
-                onClick={fetchFiles}
+                onClick={() => {
+                  if (activeTab === 'files') fetchFiles();
+                  else if (activeTab === 'subscriptions') fetchSubscriptions();
+                  else if (activeTab === 'qrs') fetchPlans();
+                }}
                 className="p-2 rounded-lg text-neutral-500 hover:text-white hover:bg-white/5 transition-all"
-                title="Refresh files"
+                title="Refresh"
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
@@ -625,237 +850,550 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Total Files', value: files.length.toString(), icon: FileArchive, color: 'text-sky-400' },
-            { label: 'Storage Used', value: `${totalSizeMB.toFixed(1)} MB`, icon: HardDrive, color: 'text-emerald-400' },
-            { label: 'Last Upload', value: lastUpload, icon: Clock, color: 'text-violet-400' },
-            {
-              label: 'Platforms',
-              value: `${new Set(files.map((f) => f.deviceType)).size} Active`,
-              icon: Zap,
-              color: 'text-amber-400',
-            },
-          ].map((stat) => (
-            <Card key={stat.label} className="bg-white/[0.02] border-white/5">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <stat.icon className={`w-4 h-4 ${stat.color} flex-shrink-0`} />
-                  <div>
-                    <p className="text-xs text-neutral-500">{stat.label}</p>
-                    <p className="text-sm font-semibold text-white">{stat.value}</p>
-                  </div>
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-8 max-w-sm">
+          <button
+            onClick={() => setActiveTab('files')}
+            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'files'
+                ? 'bg-white/10 text-white shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Files
+          </button>
+          <button
+            onClick={() => setActiveTab('subscriptions')}
+            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'subscriptions'
+                ? 'bg-white/10 text-white shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Subscriptions
+          </button>
+          <button
+            onClick={() => setActiveTab('qrs')}
+            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'qrs'
+                ? 'bg-white/10 text-white shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Plan QRs
+          </button>
+        </div>
+
+        {activeTab === 'files' && (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { label: 'Total Files', value: files.length.toString(), icon: FileArchive, color: 'text-sky-400' },
+                { label: 'Storage Used', value: `${totalSizeMB.toFixed(1)} MB`, icon: HardDrive, color: 'text-emerald-400' },
+                { label: 'Last Upload', value: lastUpload, icon: Clock, color: 'text-violet-400' },
+                {
+                  label: 'Platforms',
+                  value: `${new Set(files.map((f) => f.deviceType)).size} Active`,
+                  icon: Zap,
+                  color: 'text-amber-400',
+                },
+              ].map((stat) => (
+                <Card key={stat.label} className="bg-white/[0.02] border-white/5">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <stat.icon className={`w-4 h-4 ${stat.color} flex-shrink-0`} />
+                      <div>
+                        <p className="text-xs text-neutral-500">{stat.label}</p>
+                        <p className="text-sm font-semibold text-white">{stat.value}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Upload Section */}
+            <Card className="bg-white/[0.02] border-white/5 mb-8">
+              <CardHeader>
+                <CardTitle className="text-white text-base">Upload New File</CardTitle>
+                <CardDescription className="text-neutral-500 text-sm">
+                  Select the target device, then drag & drop or click to choose a file (max 500 MB)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Device Type Selector */}
+                <div>
+                  <label className="text-xs font-medium text-neutral-400 mb-2 block">Compatible Device *</label>
+                  <DeviceTypeSelector
+                    value={selectedDeviceType}
+                    onChange={(v) => setSelectedDeviceType(v)}
+                  />
+                </div>
+
+                {/* Drop Zone */}
+                <div
+                  id="upload-dropzone"
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                  onClick={() => !uploading && inputRef.current?.click()}
+                  className={`relative border-2 border-dashed rounded-xl p-8 md:p-12 text-center transition-all duration-200 ${
+                    uploading
+                      ? 'border-amber-500/40 bg-amber-500/5 cursor-default'
+                      : dragActive
+                      ? 'border-sky-500 bg-sky-500/5 cursor-copy'
+                      : selectedDeviceType
+                      ? 'border-white/15 hover:border-white/25 hover:bg-white/[0.02] cursor-pointer'
+                      : 'border-white/5 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".apk,.exe,.dmg,.zip,.ipa"
+                    onChange={handleChange}
+                  />
+
+                  {uploading ? (
+                    <div className="space-y-4">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 flex items-center justify-center">
+                        <Upload className="w-5 h-5 text-amber-400 animate-bounce" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white mb-1">Uploading {uploadingFileName}</p>
+                        <div className="max-w-xs mx-auto bg-white/5 rounded-full h-1.5 overflow-hidden">
+                          <motion.div
+                            className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min(uploadProgress, 100)}%` }}
+                            transition={{ ease: 'linear' }}
+                          />
+                        </div>
+                        <p className="text-xs text-neutral-500 mt-2">{Math.min(Math.round(uploadProgress), 100)}%</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center">
+                        <Upload className={`w-5 h-5 ${dragActive ? 'text-sky-400' : 'text-neutral-400'}`} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">
+                          {dragActive ? 'Drop file here' : selectedDeviceType ? 'Click or drag file to upload' : 'Select a device type first'}
+                        </p>
+                        <p className="text-xs text-neutral-600 mt-1">
+                          Supports: APK, EXE, DMG, ZIP, IPA — Max 500 MB
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
 
-        {/* Upload Section */}
-        <Card className="bg-white/[0.02] border-white/5 mb-8">
-          <CardHeader>
-            <CardTitle className="text-white text-base">Upload New File</CardTitle>
-            <CardDescription className="text-neutral-500 text-sm">
-              Select the target device, then drag & drop or click to choose a file (max 500 MB)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Device Type Selector */}
-            <div>
-              <label className="text-xs font-medium text-neutral-400 mb-2 block">Compatible Device *</label>
-              <DeviceTypeSelector
-                value={selectedDeviceType}
-                onChange={(v) => setSelectedDeviceType(v)}
-              />
-            </div>
+            {/* Files List */}
+            <Card className="bg-white/[0.02] border-white/5">
+              <CardHeader>
+                <CardTitle className="text-white text-base">Published Files</CardTitle>
+                <CardDescription className="text-neutral-500 text-sm">
+                  All uploaded files — these are visible on the download page
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 rounded-xl bg-white/[0.03] animate-pulse" />
+                    ))}
+                  </div>
+                ) : files.length === 0 ? (
+                  <div className="text-center py-14">
+                    <FileArchive className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
+                    <p className="text-sm text-neutral-500">No files uploaded yet</p>
+                    <p className="text-xs text-neutral-700 mt-1">Upload your first file above</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    <AnimatePresence initial={false}>
+                      {files.map((file) => {
+                        const cfg = deviceTypeConfig[file.deviceType] || deviceTypeConfig.desktop;
+                        const Icon = cfg.icon;
+                        return (
+                          <motion.div
+                            key={file.id}
+                            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                            animate={{ opacity: 1, height: 'auto', marginBottom: 0 }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className={`flex items-center gap-3 p-3.5 rounded-xl border ${cfg.border} ${cfg.bg}`}
+                          >
+                            <div className={`w-9 h-9 rounded-lg ${cfg.bg} border ${cfg.border} flex items-center justify-center flex-shrink-0`}>
+                              <Icon className={`w-4 h-4 ${cfg.color}`} />
+                            </div>
 
-            {/* Drop Zone */}
-            <div
-              id="upload-dropzone"
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => !uploading && inputRef.current?.click()}
-              className={`relative border-2 border-dashed rounded-xl p-8 md:p-12 text-center transition-all duration-200 ${
-                uploading
-                  ? 'border-amber-500/40 bg-amber-500/5 cursor-default'
-                  : dragActive
-                  ? 'border-sky-500 bg-sky-500/5 cursor-copy'
-                  : selectedDeviceType
-                  ? 'border-white/15 hover:border-white/25 hover:bg-white/[0.02] cursor-pointer'
-                  : 'border-white/5 opacity-50 cursor-not-allowed'
-              }`}
-            >
-              <input
-                ref={inputRef}
-                type="file"
-                className="hidden"
-                accept=".apk,.exe,.dmg,.zip,.ipa"
-                onChange={handleChange}
-              />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium text-white truncate max-w-[200px] sm:max-w-none">
+                                  {file.name}
+                                </p>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${cfg.bg} ${cfg.color} border ${cfg.border} whitespace-nowrap flex-shrink-0`}>
+                                  {cfg.shortLabel}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-xs text-neutral-500">{file.sizeFormatted}</span>
+                                <span className="text-xs text-neutral-700">·</span>
+                                <span className="text-xs text-neutral-500">
+                                  {new Date(file.uploadedAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
 
-              {uploading ? (
-                <div className="space-y-4">
-                  <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 flex items-center justify-center">
-                    <Upload className="w-5 h-5 text-amber-400 animate-bounce" />
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button
+                                onClick={() => handleCopyLink(file)}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-all duration-150"
+                                title="Copy download link"
+                              >
+                                {copiedId === file.id ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(file.id)}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 transition-all duration-150"
+                                title="Delete file"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-white mb-1">Uploading {uploadingFileName}</p>
-                    <div className="max-w-xs mx-auto bg-white/5 rounded-full h-1.5 overflow-hidden">
-                      <motion.div
-                        className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(uploadProgress, 100)}%` }}
-                        transition={{ ease: 'linear' }}
-                      />
-                    </div>
-                    <p className="text-xs text-neutral-500 mt-2">{Math.min(Math.round(uploadProgress), 100)}%</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center">
-                    <Upload className={`w-5 h-5 ${dragActive ? 'text-sky-400' : 'text-neutral-400'}`} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {dragActive ? 'Drop file here' : selectedDeviceType ? 'Click or drag file to upload' : 'Select a device type first'}
-                    </p>
-                    <p className="text-xs text-neutral-600 mt-1">
-                      Supports: APK, EXE, DMG, ZIP, IPA — Max 500 MB
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                )}
+              </CardContent>
+            </Card>
 
-        {/* Files List */}
-        <Card className="bg-white/[0.02] border-white/5">
-          <CardHeader>
-            <CardTitle className="text-white text-base">Published Files</CardTitle>
-            <CardDescription className="text-neutral-500 text-sm">
-              All uploaded files — these are visible on the download page
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-16 rounded-xl bg-white/[0.03] animate-pulse" />
-                ))}
-              </div>
-            ) : files.length === 0 ? (
-              <div className="text-center py-14">
-                <FileArchive className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
-                <p className="text-sm text-neutral-500">No files uploaded yet</p>
-                <p className="text-xs text-neutral-700 mt-1">Upload your first file above</p>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <AnimatePresence initial={false}>
-                  {files.map((file) => {
-                    const cfg = deviceTypeConfig[file.deviceType] || deviceTypeConfig.desktop;
-                    const Icon = cfg.icon;
-                    return (
-                      <motion.div
-                        key={file.id}
-                        initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                        animate={{ opacity: 1, height: 'auto', marginBottom: 0 }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className={`flex items-center gap-3 p-3.5 rounded-xl border ${cfg.border} ${cfg.bg}`}
-                      >
-                        <div className={`w-9 h-9 rounded-lg ${cfg.bg} border ${cfg.border} flex items-center justify-center flex-shrink-0`}>
+            {/* Platform Summary */}
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+              {(Object.entries(deviceTypeConfig) as [DeviceType, typeof deviceTypeConfig[DeviceType]][]).map(([type, cfg]) => {
+                const count = files.filter((f) => f.deviceType === type).length;
+                const latest = files.find((f) => f.deviceType === type);
+                const Icon = cfg.icon;
+                return (
+                  <Card
+                    key={type}
+                    className={`bg-white/[0.02] border transition-colors ${
+                      count > 0 ? cfg.border : 'border-white/5'
+                    }`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
                           <Icon className={`w-4 h-4 ${cfg.color}`} />
                         </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-white truncate">{cfg.label}</p>
+                          {count > 0 ? (
+                            <p className={`text-xs mt-0.5 ${cfg.color}`}>{count} file{count !== 1 ? 's' : ''}</p>
+                          ) : (
+                            <p className="text-xs text-neutral-700 mt-0.5">No files</p>
+                          )}
+                        </div>
+                      </div>
+                      {latest && (
+                        <p className="text-[10px] text-neutral-600 truncate mt-2">{latest.originalName}</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </>
+        )}
 
+        {activeTab === 'subscriptions' && (
+          <div className="space-y-6">
+            {/* Stats */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                { label: 'Total Subscriptions', value: subscriptions.length.toString(), icon: Users, color: 'text-sky-400' },
+                { label: 'Pending Approval', value: subscriptions.filter(s => s.status === 'pending').length.toString(), icon: Clock, color: 'text-amber-400' },
+                { label: 'Approved Users', value: subscriptions.filter(s => s.status === 'approved').length.toString(), icon: CheckCircle, color: 'text-emerald-400' },
+                {
+                  label: 'Total Earnings',
+                  value: `${subscriptions.filter(s => s.status === 'approved').reduce((sum, s) => sum + s.planPrice, 0)} /-`,
+                  icon: Coins,
+                  color: 'text-violet-400',
+                },
+              ].map((stat) => (
+                <Card key={stat.label} className="bg-white/[0.02] border-white/5">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <stat.icon className={`w-4 h-4 ${stat.color} flex-shrink-0`} />
+                      <div>
+                        <p className="text-xs text-neutral-500">{stat.label}</p>
+                        <p className="text-sm font-semibold text-white">{stat.value}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Filters & Actions */}
+            <Card className="bg-white/[0.02] border-white/5">
+              <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4">
+                <div>
+                  <CardTitle className="text-white text-base">Subscription Requests</CardTitle>
+                  <CardDescription className="text-neutral-500 text-sm">
+                    Verify screenshots and approve downloads for users
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-lg border border-white/5">
+                  {(['all', 'pending', 'approved', 'rejected'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setSubFilter(filter)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium capitalize transition-all ${
+                        subFilter === filter
+                          ? 'bg-white/10 text-white'
+                          : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingSubs ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 rounded-xl bg-white/[0.03] animate-pulse" />
+                    ))}
+                  </div>
+                ) : filteredSubs.length === 0 ? (
+                  <div className="text-center py-14 text-neutral-500">
+                    <Users className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
+                    <p className="text-sm">No subscription requests found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredSubs.map((sub) => (
+                      <div
+                        key={sub.id}
+                        className={`flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-4 rounded-xl border ${
+                          sub.status === 'approved'
+                            ? 'border-emerald-500/20 bg-emerald-500/5'
+                            : sub.status === 'rejected'
+                            ? 'border-red-500/20 bg-red-500/5'
+                            : 'border-white/5 bg-white/[0.01]'
+                        }`}
+                      >
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-medium text-white truncate max-w-[200px] sm:max-w-none">
-                              {file.name}
-                            </p>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${cfg.bg} ${cfg.color} border ${cfg.border} whitespace-nowrap flex-shrink-0`}>
-                              {cfg.shortLabel}
-                            </span>
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-sm font-semibold text-white">{sub.name}</span>
+                            <span className="text-xs text-neutral-400">({sub.email})</span>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-neutral-500">{file.sizeFormatted}</span>
-                            <span className="text-xs text-neutral-700">·</span>
-                            <span className="text-xs text-neutral-500">
-                              {new Date(file.uploadedAt).toLocaleDateString()}
+                          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                              Plan {sub.planPrice} /-
                             </span>
+                            <span className="text-xs text-neutral-500">
+                              Submitted: {new Date(sub.createdAt).toLocaleString()}
+                            </span>
+                            {sub.approvedAt && (
+                              <span className="text-xs text-neutral-500">
+                                Approved: {new Date(sub.approvedAt).toLocaleDateString()}
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <button
-                            onClick={() => handleCopyLink(file)}
-                            className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-all duration-150"
-                            title="Copy download link"
-                          >
-                            {copiedId === file.id ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
+                        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                          {/* Screenshot Preview */}
+                          {sub.screenshotUrl && (
+                            <div className="relative group cursor-pointer" onClick={() => setSelectedScreenshotUrl(sub.screenshotUrl)}>
+                              <img
+                                src={sub.screenshotUrl}
+                                alt="Payment Screenshot"
+                                className="w-12 h-16 object-cover rounded-lg border border-white/10 hover:border-sky-400 transition-all shadow-md"
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-lg transition-opacity">
+                                <span className="text-[10px] text-white">Zoom</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-2">
+                            {sub.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => handleApproveSub(sub.id)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/20 hover:text-white transition-all text-xs font-medium"
+                                  title="Approve subscription"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleRejectSub(sub.id)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/25 hover:bg-red-500/20 hover:text-white transition-all text-xs font-medium"
+                                  title="Reject subscription"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Reject
+                                </button>
+                              </>
                             )}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(file.id)}
-                            className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 transition-all duration-150"
-                            title="Delete file"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                            {sub.status !== 'pending' && (
+                              <span className={`text-xs px-2.5 py-1 rounded-md border font-medium ${
+                                sub.status === 'approved' 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                  : 'bg-red-500/10 text-red-400 border-red-500/20'
+                              }`}>
+                                {sub.status}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleDeleteSub(sub.id)}
+                              className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 border border-transparent hover:border-red-500/25 transition-all"
+                              title="Delete record"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </motion.div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === 'qrs' && (
+          <Card className="bg-white/[0.02] border-white/5">
+            <CardHeader>
+              <CardTitle className="text-white text-base">Plan QR Codes</CardTitle>
+              <CardDescription className="text-neutral-500 text-sm">
+                Upload payment QR code images for each plan. Users will see these QR codes when they checkout.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingPlans ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-28 rounded-xl bg-white/[0.03] animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-3 gap-6">
+                  {([49, 109, 149] as const).map((price) => {
+                    const qrUrl = plans[price];
+                    const isUploading = uploadingQrPlan === price;
+                    const fileInputId = `qr-upload-input-${price}`;
+
+                    return (
+                      <Card key={price} className="bg-white/[0.01] border-white/5 relative overflow-hidden flex flex-col h-full">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-white text-base flex justify-between items-center">
+                            <span>Plan {price} /-</span>
+                            <span className="text-xs text-neutral-500 font-normal">
+                              {price === 149 ? 'All Apps' : price === 109 ? 'Mobile & Desktop' : 'Desktop Only'}
+                            </span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="flex-1 flex flex-col items-center justify-between pb-6">
+                          <div className="w-40 h-40 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center overflow-hidden mb-5 relative group">
+                            {qrUrl ? (
+                              <img src={qrUrl} alt={`Plan ${price} QR`} className="w-full h-full object-contain" />
+                            ) : (
+                              <div className="flex flex-col items-center text-center p-4">
+                                <QrCode className="w-8 h-8 text-neutral-600 mb-2" />
+                                <span className="text-xs text-neutral-500">No QR Code Uploaded</span>
+                              </div>
+                            )}
+                            
+                            {isUploading && (
+                              <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-3">
+                                <Loader2 className="w-5 h-5 text-sky-400 animate-spin mb-2" />
+                                <span className="text-[10px] text-sky-400">{Math.round(uploadingQrProgress)}%</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="w-full">
+                            <input
+                              type="file"
+                              id={fileInputId}
+                              accept="image/png, image/jpeg, image/jpg, image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleUploadQr(price, e.target.files[0]);
+                                }
+                              }}
+                              disabled={isUploading}
+                            />
+                            <button
+                              onClick={() => document.getElementById(fileInputId)?.click()}
+                              disabled={isUploading}
+                              className="w-full py-2 px-4 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              {qrUrl ? 'Change QR Image' : 'Upload QR Image'}
+                            </button>
+                          </div>
+                        </CardContent>
+                      </Card>
                     );
                   })}
-                </AnimatePresence>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Platform Summary */}
-        <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-          {(Object.entries(deviceTypeConfig) as [DeviceType, typeof deviceTypeConfig[DeviceType]][]).map(([type, cfg]) => {
-            const count = files.filter((f) => f.deviceType === type).length;
-            const latest = files.find((f) => f.deviceType === type);
-            const Icon = cfg.icon;
-            return (
-              <Card
-                key={type}
-                className={`bg-white/[0.02] border transition-colors ${
-                  count > 0 ? cfg.border : 'border-white/5'
-                }`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-lg ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
-                      <Icon className={`w-4 h-4 ${cfg.color}`} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-white truncate">{cfg.label}</p>
-                      {count > 0 ? (
-                        <p className={`text-xs mt-0.5 ${cfg.color}`}>{count} file{count !== 1 ? 's' : ''}</p>
-                      ) : (
-                        <p className="text-xs text-neutral-700 mt-0.5">No files</p>
-                      )}
-                    </div>
-                  </div>
-                  {latest && (
-                    <p className="text-[10px] text-neutral-600 truncate mt-2">{latest.originalName}</p>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </main>
+
+      {/* Lightbox modal for payment screenshot zoom */}
+      <AnimatePresence>
+        {selectedScreenshotUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedScreenshotUrl(null)}
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-zoom-out"
+          >
+            <button
+              onClick={() => setSelectedScreenshotUrl(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <motion.img
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              src={selectedScreenshotUrl}
+              alt="Payment Screenshot Zoomed"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg border border-white/10 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
