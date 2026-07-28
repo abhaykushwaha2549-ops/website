@@ -98,6 +98,7 @@ interface UploadedFile {
 // LOGIN SCREEN
 // ─────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -111,14 +112,14 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
       const res = await fetch(`${API_BASE}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (res.ok && data.token) {
         localStorage.setItem('admin_token', data.token);
         onLogin(data.token);
       } else {
-        setError(data.error || 'Invalid password');
+        setError(data.error || 'Incorrect email or password');
       }
     } catch {
       setError('Cannot reach server. Make sure the backend is running on port 3001.');
@@ -152,6 +153,20 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
           <CardContent className="p-6">
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
+                <label className="text-xs font-medium text-neutral-400 mb-2 block">Email Address</label>
+                <input
+                  id="admin-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter admin email"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-sky-500/50 focus:bg-white/[0.07] transition-all duration-200"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              <div>
                 <label className="text-xs font-medium text-neutral-400 mb-2 block">Password</label>
                 <div className="relative">
                   <input
@@ -161,7 +176,6 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter admin password"
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-11 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-sky-500/50 focus:bg-white/[0.07] transition-all duration-200"
-                    autoFocus
                     required
                   />
                   <button
@@ -191,7 +205,7 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
               <button
                 id="login-submit"
                 type="submit"
-                disabled={loading || !password}
+                disabled={loading || !email || !password}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-white font-medium text-sm hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-sky-500/20"
               >
                 {loading ? (

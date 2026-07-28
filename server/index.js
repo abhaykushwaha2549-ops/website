@@ -12,7 +12,8 @@ const PORT = process.env.PORT || 3001;
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
-const ADMIN_PASSWORD  = process.env.ADMIN_PASSWORD  || 'lightinmotion@admin';
+const ADMIN_EMAIL     = process.env.ADMIN_EMAIL     || 'abhaykushwaha2549@gmail.com';
+const ADMIN_PASSWORD  = process.env.ADMIN_PASSWORD  || 'Ab#ay2549';
 const SUPABASE_URL    = process.env.SUPABASE_URL    || '';
 const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY || '';
 const FRONTEND_URL    = process.env.FRONTEND_URL    || 'http://localhost:3000';
@@ -121,9 +122,21 @@ const requireAuth = (req, res, next) => {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer '))
     return res.status(401).json({ error: 'Unauthorized' });
-  if (auth.slice(7) !== ADMIN_PASSWORD)
-    return res.status(401).json({ error: 'Invalid credentials' });
-  next();
+  const token = auth.slice(7);
+  
+  try {
+    const credentials = Buffer.from(token, 'base64').toString('ascii');
+    const [email, password] = credentials.split(':');
+    if (email && email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+      return next();
+    }
+  } catch (err) {}
+
+  if (token === ADMIN_PASSWORD) {
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Invalid credentials' });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,11 +212,13 @@ function normaliseFile(row) {
 
 // POST /api/login
 app.post('/api/login', (req, res) => {
-  const { password } = req.body;
-  if (!password) return res.status(400).json({ error: 'Password required' });
-  if (password === ADMIN_PASSWORD)
-    return res.json({ token: ADMIN_PASSWORD, success: true });
-  return res.status(401).json({ error: 'Incorrect password' });
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase() && password === ADMIN_PASSWORD) {
+    const token = Buffer.from(`${ADMIN_EMAIL}:${ADMIN_PASSWORD}`).toString('base64');
+    return res.json({ token, success: true });
+  }
+  return res.status(401).json({ error: 'Incorrect email or password' });
 });
 
 // GET /api/auth/verify
