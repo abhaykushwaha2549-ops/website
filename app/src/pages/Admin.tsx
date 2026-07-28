@@ -29,6 +29,8 @@ import {
   Users,
   CheckCircle,
   XCircle,
+  Plus,
+  Key,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -321,7 +323,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'files' | 'subscriptions' | 'qrs'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'subscriptions' | 'qrs' | 'codes'>('files');
 
   // Subscriptions states
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
@@ -334,6 +336,12 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [uploadingQrPlan, setUploadingQrPlan] = useState<number | null>(null);
   const [uploadingQrProgress, setUploadingQrProgress] = useState(0);
+
+  // Product Codes states
+  const [productCodes, setProductCodes] = useState<any[]>([]);
+  const [loadingCodes, setLoadingCodes] = useState(false);
+  const [generatingCode, setGeneratingCode] = useState(false);
+  const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -385,6 +393,25 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     setLoadingPlans(false);
   };
 
+  // ── Fetch product codes
+  const fetchProductCodes = async () => {
+    setLoadingCodes(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/product-codes`, {
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProductCodes(data);
+      } else {
+        showNotification('Failed to load product codes.', 'error');
+      }
+    } catch {
+      showNotification('Failed to load product codes.', 'error');
+    }
+    setLoadingCodes(false);
+  };
+
   useEffect(() => {
     fetchFiles();
   }, []);
@@ -394,6 +421,8 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
       fetchSubscriptions();
     } else if (activeTab === 'qrs') {
       fetchPlans();
+    } else if (activeTab === 'codes') {
+      fetchProductCodes();
     }
   }, [activeTab]);
 
@@ -616,6 +645,43 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     });
   };
 
+  const handleGenerateCode = async () => {
+    setGeneratingCode(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/product-codes/generate`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        showNotification('Product code generated successfully!');
+        fetchProductCodes();
+      } else {
+        showNotification('Failed to generate product code.', 'error');
+      }
+    } catch {
+      showNotification('Failed to generate product code.', 'error');
+    }
+    setGeneratingCode(false);
+  };
+
+  const handleDeleteCode = async (id: string) => {
+    if (!confirm('Are you sure you want to revoke/delete this product code?')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/product-codes/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        showNotification('Product code revoked.');
+        fetchProductCodes();
+      } else {
+        showNotification('Failed to revoke product code.', 'error');
+      }
+    } catch {
+      showNotification('Failed to revoke product code.', 'error');
+    }
+  };
+
   // ── Stats
   const totalSizeMB = files.reduce((acc, f) => acc + (f.size || 0), 0) / (1024 * 1024);
   const lastUpload = files[0] ? new Date(files[0].uploadedAt).toLocaleDateString() : 'N/A';
@@ -830,6 +896,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                   if (activeTab === 'files') fetchFiles();
                   else if (activeTab === 'subscriptions') fetchSubscriptions();
                   else if (activeTab === 'qrs') fetchPlans();
+                  else if (activeTab === 'codes') fetchProductCodes();
                 }}
                 className="p-2 rounded-lg text-neutral-500 hover:text-white hover:bg-white/5 transition-all"
                 title="Refresh"
@@ -851,7 +918,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-8 max-w-sm">
+        <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-8 max-w-md">
           <button
             onClick={() => setActiveTab('files')}
             className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
@@ -881,6 +948,16 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
             }`}
           >
             Plan QRs
+          </button>
+          <button
+            onClick={() => setActiveTab('codes')}
+            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'codes'
+                ? 'bg-white/10 text-white shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Product Codes
           </button>
         </div>
 
@@ -1363,6 +1440,110 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
               )}
             </CardContent>
           </Card>
+        )}
+
+        {activeTab === 'codes' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">Product Authorization Codes</h2>
+                <p className="text-xs text-neutral-500 mt-1">
+                  Generate unique product codes that allow buyers to skip payment verification and unlock all apps.
+                </p>
+              </div>
+              <button
+                onClick={handleGenerateCode}
+                disabled={generatingCode}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-all text-xs disabled:opacity-50"
+              >
+                {generatingCode ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Plus className="w-3.5 h-3.5" />
+                )}
+                Generate Code
+              </button>
+            </div>
+
+            <Card className="bg-white/[0.02] border-white/5">
+              <CardContent className="p-0">
+                {loadingCodes ? (
+                  <div className="p-6 space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 rounded-xl bg-white/[0.03] animate-pulse" />
+                    ))}
+                  </div>
+                ) : productCodes.length === 0 ? (
+                  <div className="text-center py-14 text-neutral-500">
+                    <Key className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
+                    <p className="text-sm">No product codes generated yet</p>
+                    <p className="text-xs text-neutral-700 mt-1">Click "Generate Code" above to create one</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {productCodes.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between p-4 gap-4 flex-wrap sm:flex-nowrap">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold text-white tracking-wider bg-white/5 px-2.5 py-1 rounded border border-white/5">
+                              {item.code}
+                            </span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(item.code);
+                                setCopiedCodeId(item.id);
+                                setTimeout(() => setCopiedCodeId(null), 2000);
+                              }}
+                              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-all"
+                              title="Copy code"
+                            >
+                              {copiedCodeId === item.id ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-neutral-500 flex-wrap">
+                            <span>Created: {new Date(item.createdAt || item.created_at).toLocaleString()}</span>
+                            {item.status === 'used' && (
+                              <>
+                                <span className="text-neutral-700">·</span>
+                                <span className="text-emerald-400">Used by: {item.usedBy || item.used_by}</span>
+                                {item.usedAt && (
+                                  <>
+                                    <span className="text-neutral-700">·</span>
+                                    <span>Used on: {new Date(item.usedAt || item.used_at).toLocaleDateString()}</span>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                          <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
+                            item.status === 'active'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                              : 'bg-neutral-500/10 text-neutral-500 border-neutral-500/20'
+                          }`}>
+                            {item.status}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteCode(item.id)}
+                            className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 border border-transparent hover:border-red-500/25 transition-all"
+                            title="Revoke / Delete code"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
       </main>
 

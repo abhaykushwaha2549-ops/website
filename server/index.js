@@ -89,12 +89,13 @@ if (!USE_SUPABASE) {
   if (!fs.existsSync(QRS_DIR)) fs.mkdirSync(QRS_DIR, { recursive: true });
   if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
   if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 49: null, 109: null, 149: null } }, null, 2));
+    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 49: null, 109: null, 149: null }, productCodes: [] }, null, 2));
   } else {
     const _db = readDB();
     if (typeof _db.totalDownloads !== 'number') { _db.totalDownloads = 0; }
     if (!_db.subscriptions) { _db.subscriptions = []; }
     if (!_db.plans) { _db.plans = { 49: null, 109: null, 149: null }; }
+    if (!_db.productCodes) { _db.productCodes = []; }
     writeDB(_db);
   }
 }
@@ -889,6 +890,186 @@ app.delete('/api/admin/subscriptions/:id', requireAuth, async (req, res) => {
       db.subscriptions.splice(idx, 1);
       writeDB(db);
       return res.json({ success: true, id: req.params.id });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT AUTHORIZATION CODES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateProductCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const genPart = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `LIM-${genPart()}-${genPart()}`;
+}
+
+// GET /api/admin/product-codes (protected)
+app.get('/api/admin/product-codes', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('product_codes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json(data || []);
+    } else {
+      const db = readDB();
+      const codes = db.productCodes || [];
+      codes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return res.json(codes);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/product-codes/generate (protected)
+app.post('/api/admin/product-codes/generate', requireAuth, async (req, res) => {
+  const code = generateProductCode();
+  const id = uuidv4();
+  const createdAt = new Date().toISOString();
+  
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('product_codes')
+        .insert({
+          id,
+          code,
+          status: 'active',
+          created_at: createdAt
+        })
+        .select()
+        .single();
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ success: true, data });
+    } else {
+      const db = readDB();
+      db.productCodes = db.productCodes || [];
+      const newCode = {
+        id,
+        code,
+        status: 'active',
+        createdAt
+      };
+      db.productCodes.push(newCode);
+      writeDB(db);
+      return res.json({ success: true, data: newCode });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/admin/product-codes/:id (protected)
+app.delete('/api/admin/product-codes/:id', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { error } = await supabase
+        .from('product_codes')
+        .delete()
+        .eq('id', req.params.id);
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ success: true, id: req.params.id });
+    } else {
+      const db = readDB();
+      db.productCodes = db.productCodes || [];
+      const idx = db.productCodes.findIndex(c => c.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Product code not found' });
+      db.productCodes.splice(idx, 1);
+      writeDB(db);
+      return res.json({ success: true, id: req.params.id });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/subscription/verify-code (public)
+app.post('/api/subscription/verify-code', async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ error: 'email and code are required' });
+  
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanCode = code.trim().toUpperCase();
+  
+  try {
+    if (USE_SUPABASE) {
+      const { data: codeRow, error: codeErr } = await supabase
+        .from('product_codes')
+        .select('*')
+        .eq('code', cleanCode)
+        .eq('status', 'active')
+        .maybeSingle();
+        
+      if (codeErr || !codeRow) {
+        return res.status(400).json({ error: 'Invalid or already used product code' });
+      }
+      
+      const now = new Date().toISOString();
+      await supabase
+        .from('product_codes')
+        .update({
+          status: 'used',
+          used_by: cleanEmail,
+          used_at: now
+        })
+        .eq('id', codeRow.id);
+        
+      const { data: subData, error: subErr } = await supabase
+        .from('subscriptions')
+        .upsert({
+          id: uuidv4(),
+          name: 'Product Owner',
+          email: cleanEmail,
+          plan_price: 149,
+          screenshot_path: `product-code: ${cleanCode}`,
+          status: 'approved',
+          created_at: now,
+          approved_at: now
+        }, { onConflict: 'email' })
+        .select()
+        .single();
+        
+      if (subErr) return res.status(500).json({ error: subErr.message });
+      return res.json({ success: true, data: subData });
+    } else {
+      const db = readDB();
+      db.productCodes = db.productCodes || [];
+      const idx = db.productCodes.findIndex(c => c.code === cleanCode && c.status === 'active');
+      if (idx === -1) return res.status(400).json({ error: 'Invalid or already used product code' });
+      
+      const now = new Date().toISOString();
+      db.productCodes[idx].status = 'used';
+      db.productCodes[idx].usedBy = cleanEmail;
+      db.productCodes[idx].usedAt = now;
+      
+      db.subscriptions = db.subscriptions || [];
+      const subIdx = db.subscriptions.findIndex(s => s.email === cleanEmail);
+      const newSub = {
+        id: subIdx !== -1 ? db.subscriptions[subIdx].id : uuidv4(),
+        name: 'Product Owner',
+        email: cleanEmail,
+        planPrice: 149,
+        filename: 'product-code',
+        screenshotUrl: 'product-code',
+        status: 'approved',
+        createdAt: subIdx !== -1 ? db.subscriptions[subIdx].createdAt : now,
+        approvedAt: now
+      };
+      
+      if (subIdx !== -1) {
+        db.subscriptions[subIdx] = newSub;
+      } else {
+        db.subscriptions.push(newSub);
+      }
+      
+      writeDB(db);
+      return res.json({ success: true, data: newSub });
     }
   } catch (e) {
     res.status(500).json({ error: e.message });

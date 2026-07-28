@@ -195,7 +195,7 @@ export default function Home() {
 
   // Checkout states
   const [checkoutPlan, setCheckoutPlan] = useState<number | null>(null);
-  const [checkoutStep, setCheckoutStep] = useState<'plans' | 'details' | 'payment' | 'submitting' | 'done'>('plans');
+  const [checkoutStep, setCheckoutStep] = useState<'plans' | 'details' | 'payment' | 'submitting' | 'done' | 'code'>('plans');
   const [checkoutName, setCheckoutName] = useState('');
   const [checkoutEmail, setCheckoutEmail] = useState('');
   const [checkoutScreenshot, setCheckoutScreenshot] = useState<File | null>(null);
@@ -203,6 +203,11 @@ export default function Home() {
   const [plansQrs, setPlansQrs] = useState<Record<number, string | null>>({ 49: null, 109: null, 149: null });
   const [subGateTab, setSubGateTab] = useState<'subscribe' | 'access'>('subscribe');
   const [accessEmailInput, setAccessEmailInput] = useState('');
+
+  // Product Code states
+  const [productCodeInput, setProductCodeInput] = useState('');
+  const [productCodeEmail, setProductCodeEmail] = useState('');
+  const [verifyingProductCode, setVerifyingProductCode] = useState(false);
 
   // Animate the download count
   const animatedDownloads = useCountUp(stats.totalDownloads);
@@ -418,6 +423,41 @@ export default function Home() {
     setSubscriptionStatus('none');
     setCheckoutStep('plans');
     setCheckoutPlan(null);
+  };
+
+  const handleVerifyProductCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!productCodeEmail || !productCodeInput) {
+      alert('Email and Product Code are required!');
+      return;
+    }
+    setVerifyingProductCode(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/subscription/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: productCodeEmail.trim().toLowerCase(),
+          code: productCodeInput.trim().toUpperCase(),
+        }),
+      });
+
+      if (res.ok) {
+        await res.json();
+        alert('Product Code Verified successfully! Unlocked all downloads.');
+        setVerifiedEmail(productCodeEmail.trim().toLowerCase());
+        setSubscriptionStatus('approved');
+        setUserPlan(149);
+        localStorage.setItem('lim_user_email', productCodeEmail.trim().toLowerCase());
+        localStorage.setItem('lim_user_plan', '149');
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Failed to verify product code.');
+      }
+    } catch {
+      alert('Network error while verifying product code.');
+    }
+    setVerifyingProductCode(false);
   };
 
   // Get the latest file for each device type that has at least one file, filtered by plan
@@ -845,58 +885,70 @@ export default function Home() {
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="grid gap-6 md:grid-cols-3"
+                      className="space-y-6"
                     >
-                      {[
-                        {
-                          price: 49,
-                          title: 'Desktop App Plan',
-                          desc: 'Essential plan designed exclusively for computer users.',
-                          benefits: ['Access to Desktop App', 'Windows, macOS, Linux', 'Regular software updates'],
-                        },
-                        {
-                          price: 109,
-                          title: 'Mobile & Desktop Plan',
-                          desc: 'Dual access plan for both mobile and desktop convenience.',
-                          benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Regular software updates'],
-                        },
-                        {
-                          price: 149,
-                          title: 'All-in-One Full Plan',
-                          desc: 'All-inclusive premium access for every device.',
-                          benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Access to TV App (Android TV, Fire TV)', 'Priority customer support', 'Regular software updates'],
-                        },
-                      ].map((plan) => (
-                        <Card
-                          key={plan.price}
-                          className="bg-white/[0.01] border-white/5 flex flex-col justify-between h-full p-6 hover:border-white/10 transition-colors group cursor-pointer"
-                          onClick={() => {
-                            setCheckoutPlan(plan.price);
-                            setCheckoutStep('details');
-                          }}
-                        >
-                          <div className="space-y-4">
-                            <h3 className="text-lg font-bold text-white group-hover:text-sky-400 transition-colors">
-                              {plan.title}
-                            </h3>
-                            <p className="text-xs text-neutral-500 leading-relaxed">{plan.desc}</p>
-                            <div className="text-2xl font-bold text-white pt-2">
-                              {plan.price} /- <span className="text-xs text-neutral-500 font-normal">one-time</span>
+                      <div className="grid gap-6 md:grid-cols-3">
+                        {[
+                          {
+                            price: 49,
+                            title: 'Desktop App Plan',
+                            desc: 'Essential plan designed exclusively for computer users.',
+                            benefits: ['Access to Desktop App', 'Windows, macOS, Linux', 'Regular software updates'],
+                          },
+                          {
+                            price: 109,
+                            title: 'Mobile & Desktop Plan',
+                            desc: 'Dual access plan for both mobile and desktop convenience.',
+                            benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Regular software updates'],
+                          },
+                          {
+                            price: 149,
+                            title: 'All-in-One Full Plan',
+                            desc: 'All-inclusive premium access for every device.',
+                            benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Access to TV App (Android TV, Fire TV)', 'Priority customer support', 'Regular software updates'],
+                          },
+                        ].map((plan) => (
+                          <Card
+                            key={plan.price}
+                            className="bg-white/[0.01] border-white/5 flex flex-col justify-between h-full p-6 hover:border-white/10 transition-colors group cursor-pointer"
+                            onClick={() => {
+                              setCheckoutPlan(plan.price);
+                              setCheckoutStep('details');
+                            }}
+                          >
+                            <div className="space-y-4">
+                              <h3 className="text-lg font-bold text-white group-hover:text-sky-400 transition-colors">
+                                {plan.title}
+                              </h3>
+                              <p className="text-xs text-neutral-500 leading-relaxed">{plan.desc}</p>
+                              <div className="text-2xl font-bold text-white pt-2">
+                                {plan.price} /- <span className="text-xs text-neutral-500 font-normal">one-time</span>
+                              </div>
+                              <ul className="space-y-2 pt-4 border-t border-white/5">
+                                {plan.benefits.map((b, i) => (
+                                  <li key={i} className="flex items-center gap-2 text-xs text-neutral-400">
+                                    <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                    <span>{b}</span>
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
-                            <ul className="space-y-2 pt-4 border-t border-white/5">
-                              {plan.benefits.map((b, i) => (
-                                <li key={i} className="flex items-center gap-2 text-xs text-neutral-400">
-                                  <Check className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                                  <span>{b}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          <button className="w-full mt-6 py-2.5 rounded-xl bg-white/5 group-hover:bg-white group-hover:text-black text-white font-semibold transition-all text-xs border border-white/10 group-hover:border-transparent">
-                            Select Plan
-                          </button>
-                        </Card>
-                      ))}
+                            <button className="w-full mt-6 py-2.5 rounded-xl bg-white/5 group-hover:bg-white group-hover:text-black text-white font-semibold transition-all text-xs border border-white/10 group-hover:border-transparent">
+                              Select Plan
+                            </button>
+                          </Card>
+                        ))}
+                      </div>
+
+                      {/* Product Code link */}
+                      <div className="text-center pt-4">
+                        <button
+                          onClick={() => setCheckoutStep('code')}
+                          className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white transition-colors underline underline-offset-4"
+                        >
+                          Already have a Lightinmotion product? Enter product code
+                        </button>
+                      </div>
                     </motion.div>
                   )}
 
@@ -1074,6 +1126,70 @@ export default function Home() {
                       >
                         Okay, got it
                       </button>
+                    </motion.div>
+                  )}
+
+                  {checkoutStep === 'code' && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="max-w-md mx-auto p-6 rounded-2xl border border-white/5 bg-white/[0.01] space-y-4 text-left"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <button
+                          onClick={() => {
+                            setCheckoutStep('plans');
+                          }}
+                          className="p-1 rounded bg-white/5 text-neutral-400 hover:text-white transition-all"
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-sm font-semibold text-white">Back to Plans</span>
+                      </div>
+
+                      <div className="text-center space-y-1">
+                        <h3 className="text-base font-bold text-white">Enter Product Authorization Code</h3>
+                        <p className="text-xs text-neutral-500">
+                          Enter your registered email and your unique product code to verify ownership.
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleVerifyProductCode} className="space-y-4 pt-2">
+                        <div>
+                          <label className="text-xs text-neutral-500 block mb-1.5 font-medium">Email Address *</label>
+                          <input
+                            type="email"
+                            required
+                            placeholder="johndoe@example.com"
+                            value={productCodeEmail}
+                            onChange={(e) => setProductCodeEmail(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-sky-500 transition-colors"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-neutral-500 block mb-1.5 font-medium">Product Code *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="LIM-XXXX-XXXX"
+                            value={productCodeInput}
+                            onChange={(e) => setProductCodeInput(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm font-mono tracking-wider focus:outline-none focus:border-sky-500 transition-colors"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={verifyingProductCode}
+                          className="w-full py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                        >
+                          {verifyingProductCode ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          Verify & Access Downloads
+                        </button>
+                      </form>
                     </motion.div>
                   )}
                 </div>
