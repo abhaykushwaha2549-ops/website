@@ -697,6 +697,7 @@ app.post('/api/subscription/finalize', async (req, res) => {
     const { data, error } = await supabase
       .from('subscriptions')
       .upsert({
+        id: uuidv4(),
         name,
         email: email.trim().toLowerCase(),
         plan_price: Number(planPrice),
