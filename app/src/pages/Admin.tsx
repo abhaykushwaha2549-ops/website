@@ -31,6 +31,7 @@ import {
   XCircle,
   Plus,
   Key,
+  Star,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -337,7 +338,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'files' | 'subscriptions' | 'qrs' | 'codes'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'subscriptions' | 'qrs' | 'codes' | 'reviews'>('files');
 
   // Subscriptions states
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
@@ -356,6 +357,10 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const [loadingCodes, setLoadingCodes] = useState(false);
   const [generatingCode, setGeneratingCode] = useState(false);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+
+  // Reviews states
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -437,6 +442,8 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
       fetchPlans();
     } else if (activeTab === 'codes') {
       fetchProductCodes();
+    } else if (activeTab === 'reviews') {
+      fetchReviews();
     }
   }, [activeTab]);
 
@@ -696,6 +703,41 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
     }
   };
 
+  // ── Fetch reviews
+  const fetchReviews = async () => {
+    setLoadingReviews(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/reviews`);
+      if (res.ok) {
+        const data = await res.json();
+        setReviews(data);
+      } else {
+        showNotification('Failed to load reviews.', 'error');
+      }
+    } catch {
+      showNotification('Failed to load reviews.', 'error');
+    }
+    setLoadingReviews(false);
+  };
+
+  const handleDeleteReview = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this review? This will permanently remove it from the database and B2.')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/reviews/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (res.ok) {
+        showNotification('Review deleted.');
+        fetchReviews();
+      } else {
+        showNotification('Failed to delete review.', 'error');
+      }
+    } catch {
+      showNotification('Failed to delete review.', 'error');
+    }
+  };
+
   // ── Stats
   const totalSizeMB = files.reduce((acc, f) => acc + (f.size || 0), 0) / (1024 * 1024);
   const lastUpload = files[0] ? new Date(files[0].uploadedAt).toLocaleDateString() : 'N/A';
@@ -911,6 +953,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                   else if (activeTab === 'subscriptions') fetchSubscriptions();
                   else if (activeTab === 'qrs') fetchPlans();
                   else if (activeTab === 'codes') fetchProductCodes();
+                  else if (activeTab === 'reviews') fetchReviews();
                 }}
                 className="p-2 rounded-lg text-neutral-500 hover:text-white hover:bg-white/5 transition-all"
                 title="Refresh"
@@ -932,7 +975,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-8 max-w-md">
+        <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5 mb-8 max-w-xl">
           <button
             onClick={() => setActiveTab('files')}
             className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
@@ -972,6 +1015,16 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
             }`}
           >
             Product Codes
+          </button>
+          <button
+            onClick={() => setActiveTab('reviews')}
+            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'reviews'
+                ? 'bg-white/10 text-white shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Reviews
           </button>
         </div>
 
@@ -1549,6 +1602,98 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                             title="Revoke / Delete code"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white">Review Moderation</h2>
+                <p className="text-xs text-neutral-500 mt-1">
+                  Manage user reviews displayed on the main website homepage.
+                </p>
+              </div>
+            </div>
+
+            <Card className="bg-white/[0.02] border-white/5">
+              <CardContent className="p-0">
+                {loadingReviews ? (
+                  <div className="p-6 space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-16 rounded-xl bg-white/[0.03] animate-pulse" />
+                    ))}
+                  </div>
+                ) : reviews.length === 0 ? (
+                  <div className="text-center py-14 text-neutral-500">
+                    <Star className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
+                    <p className="text-sm">No customer reviews yet</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {reviews.map((item) => (
+                      <div key={item.id} className="flex items-start justify-between p-6 gap-6 flex-wrap md:flex-nowrap">
+                        <div className="space-y-3 flex-1 min-w-0">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-neutral-800 text-white flex items-center justify-center text-xs font-bold border border-white/5 uppercase">
+                              {item.name.slice(0, 2)}
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-semibold text-white truncate max-w-[200px] sm:max-w-none">
+                                {item.name}
+                              </h4>
+                              <p className="text-xs text-neutral-500">{item.email}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Star
+                                  key={s}
+                                  className={`w-3.5 h-3.5 ${
+                                    s <= item.rating ? 'text-amber-400 fill-amber-400' : 'text-neutral-700'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-neutral-700">·</span>
+                            <span className="text-xs text-neutral-500">
+                              Posted: {new Date(item.createdAt || item.created_at).toLocaleString()}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-neutral-400 leading-relaxed break-words whitespace-pre-line bg-white/[0.01] p-3 rounded-xl border border-white/5">
+                            {item.content}
+                          </p>
+
+                          {item.imageUrl && (
+                            <div className="mt-2">
+                              <img
+                                src={item.imageUrl}
+                                alt="Review attachment"
+                                onClick={() => setSelectedScreenshotUrl(item.imageUrl)}
+                                className="h-20 max-w-full object-cover rounded-lg border border-white/5 cursor-zoom-in hover:brightness-110 transition-all"
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                          <button
+                            onClick={() => handleDeleteReview(item.id)}
+                            className="p-2 rounded-lg bg-white/5 hover:bg-red-500/10 text-neutral-400 hover:text-red-400 border border-transparent hover:border-red-500/25 transition-all text-xs font-semibold flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete Review
                           </button>
                         </div>
                       </div>

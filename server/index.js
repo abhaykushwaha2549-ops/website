@@ -81,6 +81,7 @@ const DB_PATH    = path.join(__dirname, 'db.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const QRS_DIR = path.join(UPLOADS_DIR, 'qrs');
 const SCREENSHOTS_DIR = path.join(UPLOADS_DIR, 'screenshots');
+const REVIEWS_DIR = path.join(UPLOADS_DIR, 'reviews');
 
 function readDB()       { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
 function writeDB(data)  { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
@@ -89,14 +90,16 @@ if (!USE_SUPABASE) {
   if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   if (!fs.existsSync(QRS_DIR)) fs.mkdirSync(QRS_DIR, { recursive: true });
   if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+  if (!fs.existsSync(REVIEWS_DIR)) fs.mkdirSync(REVIEWS_DIR, { recursive: true });
   if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 49: null, 109: null, 149: null }, productCodes: [] }, null, 2));
+    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 49: null, 109: null, 149: null }, productCodes: [], reviews: [] }, null, 2));
   } else {
     const _db = readDB();
     if (typeof _db.totalDownloads !== 'number') { _db.totalDownloads = 0; }
     if (!_db.subscriptions) { _db.subscriptions = []; }
     if (!_db.plans) { _db.plans = { 49: null, 109: null, 149: null }; }
     if (!_db.productCodes) { _db.productCodes = []; }
+    if (!_db.reviews) { _db.reviews = []; }
     writeDB(_db);
   }
 }
@@ -147,6 +150,7 @@ const ALLOWED_EXT = ['.apk', '.exe', '.dmg', '.zip', '.ipa'];
 let upload = null;
 let uploadScreenshot = null;
 let uploadQr = null;
+let uploadReviewImage = null;
 
 if (!USE_SUPABASE) {
   upload = multer({
@@ -174,6 +178,14 @@ if (!USE_SUPABASE) {
   uploadQr = multer({
     storage: multer.diskStorage({
       destination: (_, __, cb) => cb(null, QRS_DIR),
+      filename:    (_, file, cb) => cb(null, uuidv4() + path.extname(file.originalname)),
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  });
+
+  uploadReviewImage = multer({
+    storage: multer.diskStorage({
+      destination: (_, __, cb) => cb(null, REVIEWS_DIR),
       filename:    (_, file, cb) => cb(null, uuidv4() + path.extname(file.originalname)),
     }),
     limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
@@ -1090,6 +1102,214 @@ app.post('/api/subscription/verify-code', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEWS
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /api/reviews (public)
+app.get('/api/reviews', async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+      if (error) return res.status(500).json({ error: error.message });
+      
+      const { GetObjectCommand } = require('@aws-sdk/client-s3');
+      const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+      
+      const results = [];
+      for (const row of (data || [])) {
+        let imageUrl = null;
+        if (row.image_path) {
+          try {
+            const command = new GetObjectCommand({
+              Bucket: B2_BUCKET_NAME,
+              Key: row.image_path,
+            });
+            imageUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+          } catch (err) {
+            console.warn(`Failed to sign review image path: ${row.image_path}`, err.message);
+          }
+        }
+        results.push({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          rating: row.rating,
+          content: row.content,
+          imageUrl,
+          createdAt: row.created_at
+        });
+      }
+      return res.json(results);
+    } else {
+      const db = readDB();
+      const reviews = db.reviews || [];
+      const sorted = [...reviews].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      
+      const results = sorted.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        rating: r.rating,
+        content: r.content,
+        imageUrl: r.filename ? `${baseUrl}/uploads/reviews/${r.filename}` : null,
+        createdAt: r.createdAt
+      }));
+      return res.json(results);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reviews/init (public)
+app.post('/api/reviews/init', async (req, res) => {
+  if (!USE_SUPABASE) return res.status(400).json({ error: 'B2 uploads not supported in local mode' });
+  const { filename, contentType } = req.body;
+  if (!filename || !contentType) return res.status(400).json({ error: 'filename and contentType are required' });
+  
+  const ext = path.extname(filename).toLowerCase();
+  const fileKey = `reviews/${uuidv4()}${ext}`;
+  
+  try {
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+    
+    const command = new PutObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: fileKey,
+      ContentType: contentType,
+    });
+    
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+    return res.json({ uploadUrl, storagePath: fileKey });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reviews/finalize (public)
+app.post('/api/reviews/finalize', async (req, res) => {
+  const { name, email, rating, content, storagePath } = req.body;
+  if (!name || !email || !content) {
+    return res.status(400).json({ error: 'name, email, and content are required' });
+  }
+  
+  const cleanEmail = email.trim().toLowerCase();
+  const numRating = rating ? Number(rating) : 5;
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  
+  try {
+    if (USE_SUPABASE) {
+      const { data, error } = await supabase
+        .from('reviews')
+        .insert({
+          id,
+          name,
+          email: cleanEmail,
+          rating: numRating,
+          content,
+          image_path: storagePath || null,
+          created_at: now
+        })
+        .select()
+        .single();
+        
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ success: true, data });
+    } else {
+      const db = readDB();
+      db.reviews = db.reviews || [];
+      const newReview = {
+        id,
+        name,
+        email: cleanEmail,
+        rating: numRating,
+        content,
+        filename: storagePath || null,
+        createdAt: now
+      };
+      db.reviews.push(newReview);
+      writeDB(db);
+      return res.json({ success: true, data: newReview });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/reviews/upload-local (public)
+app.post('/api/reviews/upload-local', (req, res, next) => {
+  if (USE_SUPABASE) return res.status(400).json({ error: 'Local upload not supported in Supabase mode' });
+  uploadReviewImage.single('file')(req, res, next);
+}, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file provided' });
+  return res.json({ storagePath: req.file.filename });
+});
+
+// DELETE /api/admin/reviews/:id (protected)
+app.delete('/api/admin/reviews/:id', requireAuth, async (req, res) => {
+  try {
+    if (USE_SUPABASE) {
+      const { data: rev, error: fetchErr } = await supabase
+        .from('reviews')
+        .select('image_path')
+        .eq('id', req.params.id)
+        .maybeSingle();
+        
+      if (fetchErr || !rev) {
+        return res.status(404).json({ error: 'Review not found' });
+      }
+      
+      if (rev.image_path) {
+        try {
+          const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
+          const command = new DeleteObjectCommand({
+            Bucket: B2_BUCKET_NAME,
+            Key: rev.image_path,
+          });
+          await s3Client.send(command);
+        } catch (err) {
+          console.warn(`Review file ${rev.image_path} not found in B2 during deletion.`, err.message);
+        }
+      }
+      
+      const { error: delErr } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', req.params.id);
+        
+      if (delErr) return res.status(500).json({ error: delErr.message });
+      return res.json({ success: true, id: req.params.id });
+    } else {
+      const db = readDB();
+      db.reviews = db.reviews || [];
+      const idx = db.reviews.findIndex(r => r.id === req.params.id);
+      if (idx === -1) return res.status(404).json({ error: 'Review not found' });
+      
+      if (db.reviews[idx].filename) {
+        const filePath = path.join(REVIEWS_DIR, db.reviews[idx].filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      }
+      
+      db.reviews.splice(idx, 1);
+      writeDB(db);
+      return res.json({ success: true, id: req.params.id });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 
 // ─────────────────────────────────────────────────────────────────────────────

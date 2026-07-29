@@ -30,6 +30,8 @@ import {
   RefreshCw,
   Check,
   QrCode,
+  Star,
+  ChevronDown,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -209,6 +211,19 @@ export default function Home() {
   const [productCodeEmail, setProductCodeEmail] = useState('');
   const [verifyingProductCode, setVerifyingProductCode] = useState(false);
 
+  // Reviews states
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [visibleReviewsCount, setVisibleReviewsCount] = useState(3);
+  const [reviewName, setReviewName] = useState('');
+  const [reviewEmail, setReviewEmail] = useState('');
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewContent, setReviewContent] = useState('');
+  const [reviewImage, setReviewImage] = useState<File | null>(null);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewUploadProgress, setReviewUploadProgress] = useState(0);
+  const [selectedReviewZoomImage, setSelectedReviewZoomImage] = useState<string | null>(null);
+
   // Animate the download count
   const animatedDownloads = useCountUp(stats.totalDownloads);
 
@@ -302,6 +317,148 @@ export default function Home() {
       setSubscriptionStatus('none');
     }
   }, [verifiedEmail]);
+
+  const fetchReviews = async () => {
+    setLoadingReviews(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/reviews`);
+      if (res.ok) {
+        const data = await res.json();
+        setReviews(data);
+      }
+    } catch (err) {
+      console.error('Failed to load reviews:', err);
+    }
+    setLoadingReviews(false);
+  };
+
+  useEffect(() => {
+    fetchReviews();
+  }, []);
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reviewName || !reviewEmail || !reviewContent) {
+      alert('Name, Email, and Content are required!');
+      return;
+    }
+
+    setSubmittingReview(true);
+    setReviewUploadProgress(0);
+
+    let storagePath: string | null = null;
+
+    try {
+      if (reviewImage) {
+        let isSupabase = false;
+        try {
+          const checkRes = await fetch(`${API_BASE}/api/plans`);
+          if (checkRes.ok) {
+            const data = await checkRes.json();
+            const firstVal = Object.values(data)[0];
+            if (firstVal && (firstVal as string).includes('backblazeb2.com')) {
+              isSupabase = true;
+            }
+          }
+        } catch {}
+
+        if (isSupabase) {
+          const initRes = await fetch(`${API_BASE}/api/reviews/init`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filename: reviewImage.name,
+              contentType: reviewImage.type,
+            }),
+          });
+
+          if (!initRes.ok) throw new Error('Failed to initialize review image upload');
+          const initData = await initRes.json();
+          storagePath = initData.storagePath;
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('PUT', initData.uploadUrl, true);
+          xhr.setRequestHeader('Content-Type', reviewImage.type);
+          
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              setReviewUploadProgress((event.loaded / event.total) * 100);
+            }
+          };
+
+          const uploadPromise = new Promise((resolve, reject) => {
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) resolve(true);
+              else reject(new Error('B2 upload failed'));
+            };
+            xhr.onerror = () => reject(new Error('Network error during B2 upload'));
+          });
+
+          xhr.send(reviewImage);
+          await uploadPromise;
+        } else {
+          const formData = new FormData();
+          formData.append('file', reviewImage);
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `${API_BASE}/api/reviews/upload-local`, true);
+          
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              setReviewUploadProgress((event.loaded / event.total) * 100);
+            }
+          };
+
+          const uploadPromise = new Promise<string>((resolve, reject) => {
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const resData = JSON.parse(xhr.responseText);
+                  resolve(resData.storagePath);
+                } catch {
+                  reject(new Error('Failed to parse local upload response'));
+                }
+              } else {
+                reject(new Error('Local upload failed'));
+              }
+            };
+            xhr.onerror = () => reject(new Error('Network error during local upload'));
+          });
+
+          xhr.send(formData);
+          storagePath = await uploadPromise;
+        }
+      }
+
+      const finalizeRes = await fetch(`${API_BASE}/api/reviews/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: reviewName.trim(),
+          email: reviewEmail.trim().toLowerCase(),
+          rating: reviewRating,
+          content: reviewContent.trim(),
+          storagePath,
+        }),
+      });
+
+      if (finalizeRes.ok) {
+        alert('Thank you for your review!');
+        setReviewName('');
+        setReviewEmail('');
+        setReviewRating(5);
+        setReviewContent('');
+        setReviewImage(null);
+        fetchReviews();
+      } else {
+        const errData = await finalizeRes.json();
+        alert(errData.error || 'Failed to save review.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'An error occurred during review submission.');
+    }
+    setSubmittingReview(false);
+  };
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1286,6 +1443,219 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Reviews Section ── */}
+      <section id="reviews" className="relative py-24 bg-black border-t border-white/5 animate-fade-in">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-neutral-400">
+              Customer Feedback
+            </h2>
+            <p className="mt-4 text-neutral-400 max-w-2xl mx-auto text-sm">
+              See what our community says about their Lightinmotion experience. Real reviews from real users.
+            </p>
+          </div>
+
+          <div className="grid gap-8 lg:grid-cols-12 items-start">
+            {/* Left Column: Submit form */}
+            <div className="lg:col-span-4 bg-white/[0.01] border border-white/5 rounded-2xl p-6 space-y-4">
+              <h3 className="text-lg font-bold text-white">Share Your Review</h3>
+              <p className="text-xs text-neutral-500">
+                Let us know what you think! You can also upload a picture of your setup.
+              </p>
+
+              <form onSubmit={handleSubmitReview} className="space-y-4 pt-2">
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Your Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter your name"
+                    value={reviewName}
+                    onChange={(e) => setReviewName(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="johndoe@example.com"
+                    value={reviewEmail}
+                    onChange={(e) => setReviewEmail(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Rating *</label>
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setReviewRating(star)}
+                        className="p-0.5 transition-all hover:scale-110"
+                      >
+                        <Star
+                          className={`w-5 h-5 ${
+                            star <= reviewRating ? 'text-amber-400 fill-amber-400' : 'text-neutral-600'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Review Content *</label>
+                  <textarea
+                    required
+                    rows={4}
+                    placeholder="Write your review here..."
+                    value={reviewContent}
+                    onChange={(e) => setReviewContent(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Product / Setup Image (Optional)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setReviewImage(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                    id="review-image-file"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('review-image-file')?.click()}
+                    className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 text-neutral-300 hover:text-white transition-all text-xs font-semibold flex items-center justify-center gap-1.5"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {reviewImage ? reviewImage.name : 'Upload Image'}
+                  </button>
+                  {reviewImage && (
+                    <p className="text-[10px] text-emerald-400 mt-1 text-center">Selected: {reviewImage.name}</p>
+                  )}
+                </div>
+
+                {submittingReview && reviewUploadProgress > 0 && (
+                  <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                    <div
+                      className="bg-sky-500 h-full transition-all duration-300"
+                      style={{ width: `${reviewUploadProgress}%` }}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submittingReview}
+                  className="w-full py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {submittingReview ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Review'
+                  )}
+                </button>
+              </form>
+            </div>
+
+            {/* Right Column: Reviews list */}
+            <div className="lg:col-span-8 space-y-6">
+              {loadingReviews ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-32 bg-white/[0.02] border border-white/5 rounded-2xl animate-pulse" />
+                  ))}
+                </div>
+              ) : reviews.length === 0 ? (
+                <div className="text-center py-20 border border-white/5 bg-white/[0.01] rounded-2xl text-neutral-500">
+                  <Star className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
+                  <p className="text-sm">No reviews yet</p>
+                  <p className="text-xs text-neutral-600 mt-1">Be the first to share your experience!</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    {reviews.slice(0, visibleReviewsCount).map((item) => (
+                      <Card
+                        key={item.id}
+                        className="bg-white/[0.01] border-white/5 p-6 flex flex-col justify-between hover:border-white/10 transition-colors h-full"
+                      >
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-neutral-800 to-neutral-700 text-white flex items-center justify-center text-xs font-bold border border-white/5 uppercase">
+                                {item.name.slice(0, 2)}
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-semibold text-white leading-tight">{item.name}</h4>
+                                <span className="text-[10px] text-neutral-500">
+                                  {new Date(item.createdAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Star
+                                  key={s}
+                                  className={`w-3.5 h-3.5 ${
+                                    s <= item.rating ? 'text-amber-400 fill-amber-400' : 'text-neutral-700'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-neutral-400 leading-relaxed font-light break-words whitespace-pre-line">
+                            {item.content}
+                          </p>
+                        </div>
+
+                        {item.imageUrl && (
+                          <div className="mt-4 pt-4 border-t border-white/5">
+                            <img
+                              src={item.imageUrl}
+                              alt="Review attachment"
+                              onClick={() => setSelectedReviewZoomImage(item.imageUrl)}
+                              className="w-full max-h-32 object-cover rounded-xl border border-white/5 cursor-zoom-in hover:brightness-110 transition-all"
+                            />
+                          </div>
+                        )}
+                      </Card>
+                    ))}
+                  </div>
+
+                  {visibleReviewsCount < reviews.length && (
+                    <div className="text-center pt-2">
+                      <button
+                        onClick={() => setVisibleReviewsCount(prev => prev + 3)}
+                        className="px-6 py-2.5 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 text-white text-xs font-semibold transition-all inline-flex items-center gap-1.5"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
+                        Load More Reviews
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Features Section ── */}
       <section id="features" className="relative py-24 md:py-32 bg-black border-t border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1363,6 +1733,35 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Lightbox modal for review attachment image zoom */}
+      <AnimatePresence>
+        {selectedReviewZoomImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedReviewZoomImage(null)}
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 cursor-zoom-out"
+          >
+            <button
+              onClick={() => setSelectedReviewZoomImage(null)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <motion.img
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              src={selectedReviewZoomImage}
+              alt="Review Attachment Zoomed"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg border border-white/10 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
