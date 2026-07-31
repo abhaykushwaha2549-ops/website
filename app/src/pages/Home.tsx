@@ -32,6 +32,7 @@ import {
   QrCode,
   Star,
   ChevronDown,
+  ShoppingCart,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -786,6 +787,15 @@ export default function Home() {
                   >
                     Learn More
                     <ChevronRight className="w-4 h-4" />
+                  </a>
+                  <a
+                    href="https://lightinmotion-2.myshopify.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-medium hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg shadow-sky-500/20"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    Visit Store
                   </a>
                 </div>
 
