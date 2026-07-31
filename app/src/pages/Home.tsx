@@ -223,6 +223,8 @@ export default function Home() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewUploadProgress, setReviewUploadProgress] = useState(0);
   const [selectedReviewZoomImage, setSelectedReviewZoomImage] = useState<string | null>(null);
+  const [useSupabase, setUseSupabase] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   // Animate the download count
   const animatedDownloads = useCountUp(stats.totalDownloads);
@@ -332,8 +334,21 @@ export default function Home() {
     setLoadingReviews(false);
   };
 
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setUseSupabase(!!data.useSupabase);
+      }
+    } catch (err) {
+      console.error('Failed to fetch status:', err);
+    }
+  };
+
   useEffect(() => {
     fetchReviews();
+    fetchStatus();
   }, []);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
@@ -350,19 +365,7 @@ export default function Home() {
 
     try {
       if (reviewImage) {
-        let isSupabase = false;
-        try {
-          const checkRes = await fetch(`${API_BASE}/api/plans`);
-          if (checkRes.ok) {
-            const data = await checkRes.json();
-            const firstVal = Object.values(data)[0];
-            if (firstVal && (firstVal as string).includes('backblazeb2.com')) {
-              isSupabase = true;
-            }
-          }
-        } catch {}
-
-        if (isSupabase) {
+        if (useSupabase) {
           const initRes = await fetch(`${API_BASE}/api/reviews/init`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -449,6 +452,7 @@ export default function Home() {
         setReviewRating(5);
         setReviewContent('');
         setReviewImage(null);
+        setIsReviewModalOpen(false);
         fetchReviews();
       } else {
         const errData = await finalizeRes.json();
@@ -1446,212 +1450,109 @@ export default function Home() {
       {/* ── Reviews Section ── */}
       <section id="reviews" className="relative py-24 bg-black border-t border-white/5 animate-fade-in">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-neutral-400">
-              Customer Feedback
-            </h2>
-            <p className="mt-4 text-neutral-400 max-w-2xl mx-auto text-sm">
-              See what our community says about their Lightinmotion experience. Real reviews from real users.
-            </p>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-16">
+            <div className="text-left">
+              <h2 className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-neutral-400">
+                Customer Feedback
+              </h2>
+              <p className="mt-2 text-neutral-400 max-w-2xl text-sm font-light">
+                See what our community says about their Lightinmotion experience. Real reviews from real users.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsReviewModalOpen(true)}
+              className="px-6 py-3 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-all text-xs flex items-center justify-center gap-1.5 self-start md:self-auto shrink-0 shadow-lg"
+            >
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              Write a Review
+            </button>
           </div>
 
-          <div className="grid gap-8 lg:grid-cols-12 items-start">
-            {/* Left Column: Submit form */}
-            <div className="lg:col-span-4 bg-white/[0.01] border border-white/5 rounded-2xl p-6 space-y-4">
-              <h3 className="text-lg font-bold text-white">Share Your Review</h3>
-              <p className="text-xs text-neutral-500">
-                Let us know what you think! You can also upload a picture of your setup.
-              </p>
-
-              <form onSubmit={handleSubmitReview} className="space-y-4 pt-2">
-                <div>
-                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Your Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter your name"
-                    value={reviewName}
-                    onChange={(e) => setReviewName(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Email Address *</label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="johndoe@example.com"
-                    value={reviewEmail}
-                    onChange={(e) => setReviewEmail(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Rating *</label>
-                  <div className="flex items-center gap-1.5">
-                    {[1, 2, 3, 4, 5].map((star) => (
-                      <button
-                        key={star}
-                        type="button"
-                        onClick={() => setReviewRating(star)}
-                        className="p-0.5 transition-all hover:scale-110"
-                      >
-                        <Star
-                          className={`w-5 h-5 ${
-                            star <= reviewRating ? 'text-amber-400 fill-amber-400' : 'text-neutral-600'
-                          }`}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Review Content *</label>
-                  <textarea
-                    required
-                    rows={4}
-                    placeholder="Write your review here..."
-                    value={reviewContent}
-                    onChange={(e) => setReviewContent(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors resize-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Product / Setup Image (Optional)</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setReviewImage(e.target.files[0]);
-                      }
-                    }}
-                    className="hidden"
-                    id="review-image-file"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => document.getElementById('review-image-file')?.click()}
-                    className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 text-neutral-300 hover:text-white transition-all text-xs font-semibold flex items-center justify-center gap-1.5"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    {reviewImage ? reviewImage.name : 'Upload Image'}
-                  </button>
-                  {reviewImage && (
-                    <p className="text-[10px] text-emerald-400 mt-1 text-center">Selected: {reviewImage.name}</p>
-                  )}
-                </div>
-
-                {submittingReview && reviewUploadProgress > 0 && (
-                  <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
-                    <div
-                      className="bg-sky-500 h-full transition-all duration-300"
-                      style={{ width: `${reviewUploadProgress}%` }}
-                    />
-                  </div>
-                )}
-
+          {/* Reviews list - Full Width */}
+          <div className="w-full">
+            {loadingReviews ? (
+              <div className="grid gap-6 sm:grid-cols-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-48 bg-white/[0.02] border border-white/5 rounded-2xl animate-pulse" />
+                ))}
+              </div>
+            ) : reviews.length === 0 ? (
+              <div className="text-center py-20 border border-white/5 bg-white/[0.01] rounded-2xl text-neutral-500 max-w-2xl mx-auto">
+                <Star className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
+                <p className="text-sm font-medium">No reviews yet</p>
+                <p className="text-xs text-neutral-600 mt-1 mb-6">Be the first to share your experience!</p>
                 <button
-                  type="submit"
-                  disabled={submittingReview}
-                  className="w-full py-2.5 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-colors text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  onClick={() => setIsReviewModalOpen(true)}
+                  className="px-5 py-2.5 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 text-white text-xs font-semibold transition-all inline-flex items-center gap-1.5"
                 >
-                  {submittingReview ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    'Submit Review'
-                  )}
+                  Write the First Review
                 </button>
-              </form>
-            </div>
-
-            {/* Right Column: Reviews list */}
-            <div className="lg:col-span-8 space-y-6">
-              {loadingReviews ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-32 bg-white/[0.02] border border-white/5 rounded-2xl animate-pulse" />
-                  ))}
-                </div>
-              ) : reviews.length === 0 ? (
-                <div className="text-center py-20 border border-white/5 bg-white/[0.01] rounded-2xl text-neutral-500">
-                  <Star className="w-10 h-10 text-neutral-700 mx-auto mb-3" />
-                  <p className="text-sm">No reviews yet</p>
-                  <p className="text-xs text-neutral-600 mt-1">Be the first to share your experience!</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  <div className="grid gap-6 sm:grid-cols-2">
-                    {reviews.slice(0, visibleReviewsCount).map((item) => (
-                      <Card
-                        key={item.id}
-                        className="bg-white/[0.01] border-white/5 p-6 flex flex-col justify-between hover:border-white/10 transition-colors h-full"
-                      >
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-neutral-800 to-neutral-700 text-white flex items-center justify-center text-xs font-bold border border-white/5 uppercase">
-                                {item.name.slice(0, 2)}
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-semibold text-white leading-tight">{item.name}</h4>
-                                <span className="text-[10px] text-neutral-500">
-                                  {new Date(item.createdAt).toLocaleDateString()}
-                                </span>
-                              </div>
+              </div>
+            ) : (
+              <div className="space-y-8">
+                <div className="grid gap-6 sm:grid-cols-3">
+                  {reviews.slice(0, visibleReviewsCount).map((item) => (
+                    <Card
+                      key={item.id}
+                      className="bg-white/[0.01] border-white/5 p-6 flex flex-col justify-between hover:border-white/10 transition-colors h-full"
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-neutral-800 to-neutral-700 text-white flex items-center justify-center text-xs font-bold border border-white/5 uppercase">
+                              {item.name.slice(0, 2)}
                             </div>
-                            <div className="flex items-center gap-0.5">
-                              {[1, 2, 3, 4, 5].map((s) => (
-                                <Star
-                                  key={s}
-                                  className={`w-3.5 h-3.5 ${
-                                    s <= item.rating ? 'text-amber-400 fill-amber-400' : 'text-neutral-700'
-                                  }`}
-                                />
-                              ))}
+                            <div>
+                              <h4 className="text-sm font-semibold text-white leading-tight">{item.name}</h4>
+                              <span className="text-[10px] text-neutral-500">
+                                {new Date(item.createdAt).toLocaleDateString()}
+                              </span>
                             </div>
                           </div>
-
-                          <p className="text-xs text-neutral-400 leading-relaxed font-light break-words whitespace-pre-line">
-                            {item.content}
-                          </p>
+                          <div className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <Star
+                                key={s}
+                                className={`w-3.5 h-3.5 ${
+                                  s <= item.rating ? 'text-amber-400 fill-amber-400' : 'text-neutral-700'
+                                }`}
+                              />
+                            ))}
+                          </div>
                         </div>
 
-                        {item.imageUrl && (
-                          <div className="mt-4 pt-4 border-t border-white/5">
-                            <img
-                              src={item.imageUrl}
-                              alt="Review attachment"
-                              onClick={() => setSelectedReviewZoomImage(item.imageUrl)}
-                              className="w-full max-h-32 object-cover rounded-xl border border-white/5 cursor-zoom-in hover:brightness-110 transition-all"
-                            />
-                          </div>
-                        )}
-                      </Card>
-                    ))}
-                  </div>
+                        <p className="text-xs text-neutral-400 leading-relaxed font-light break-words whitespace-pre-line">
+                          {item.content}
+                        </p>
+                      </div>
 
-                  {visibleReviewsCount < reviews.length && (
-                    <div className="text-center pt-2">
-                      <button
-                        onClick={() => setVisibleReviewsCount(prev => prev + 3)}
-                        className="px-6 py-2.5 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 text-white text-xs font-semibold transition-all inline-flex items-center gap-1.5"
-                      >
-                        <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
-                        Load More Reviews
-                      </button>
-                    </div>
-                  )}
+                      {item.imageUrl && (
+                        <div className="mt-4 pt-4 border-t border-white/5">
+                          <img
+                            src={item.imageUrl}
+                            alt="Review attachment"
+                            onClick={() => setSelectedReviewZoomImage(item.imageUrl)}
+                            className="w-full max-h-48 object-cover rounded-xl border border-white/5 cursor-zoom-in hover:brightness-110 transition-all"
+                          />
+                        </div>
+                      )}
+                    </Card>
+                  ))}
                 </div>
-              )}
-            </div>
+
+                {visibleReviewsCount < reviews.length && (
+                  <div className="text-center pt-2">
+                    <button
+                      onClick={() => setVisibleReviewsCount(prev => prev + 3)}
+                      className="px-6 py-2.5 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 text-white text-xs font-semibold transition-all inline-flex items-center gap-1.5"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
+                      Load More Reviews
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -1733,6 +1634,192 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Floating Review button indicator on the bottom left viewport */}
+      <div className="fixed bottom-6 left-6 z-40 flex items-center gap-3 group">
+        <motion.div
+          initial={{ opacity: 0, x: -10, scale: 0.9 }}
+          animate={{ opacity: [0, 1, 1, 0], x: [-10, 0, 0, -10], scale: [0.9, 1, 1, 0.9] }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            repeatDelay: 8,
+            ease: "easeInOut"
+          }}
+          className="bg-sky-500 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-lg border border-sky-400/20 whitespace-nowrap pointer-events-none relative"
+        >
+          Give us review!
+          <div className="absolute left-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-sky-500 rotate-45" />
+        </motion.div>
+
+        <button
+          onClick={() => setIsReviewModalOpen(true)}
+          className="w-12 h-12 rounded-full bg-neutral-900/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-white hover:text-sky-400 hover:border-sky-500/50 shadow-2xl hover:scale-110 active:scale-95 transition-all duration-300 relative"
+        >
+          <div className="absolute inset-0 rounded-full border border-sky-500/30 animate-ping opacity-75" />
+          <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+        </button>
+      </div>
+
+      {/* Review Submission Modal Terminal */}
+      <AnimatePresence>
+        {isReviewModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsReviewModalOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-lg bg-neutral-900 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6 overflow-y-auto max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setIsReviewModalOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-xl bg-white/5 text-neutral-400 hover:text-white transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Star className="w-5 h-5 text-amber-400 fill-amber-400 animate-pulse" /> Leave a Review
+                </h3>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Share your experience with the Lightinmotion community!
+                </p>
+              </div>
+
+              <form onSubmit={handleSubmitReview} className="space-y-4">
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Your Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter your name"
+                    value={reviewName}
+                    onChange={(e) => setReviewName(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="johndoe@example.com"
+                    value={reviewEmail}
+                    onChange={(e) => setReviewEmail(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Rating *</label>
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setReviewRating(star)}
+                        className="p-0.5 transition-all hover:scale-110"
+                      >
+                        <Star
+                          className={`w-6 h-6 ${
+                            star <= reviewRating ? 'text-amber-400 fill-amber-400' : 'text-neutral-600'
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Review Content *</label>
+                  <textarea
+                    required
+                    rows={4}
+                    placeholder="Write your review here..."
+                    value={reviewContent}
+                    onChange={(e) => setReviewContent(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-sky-500 transition-colors resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-neutral-400 block mb-1.5 font-medium">Product / Setup Image (Optional)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setReviewImage(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                    id="review-image-file"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById('review-image-file')?.click()}
+                    className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 text-neutral-300 hover:text-white transition-all text-xs font-semibold flex items-center justify-center gap-1.5"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {reviewImage ? reviewImage.name : 'Upload Image'}
+                  </button>
+                  {reviewImage && (
+                    <div className="mt-3 relative rounded-xl overflow-hidden border border-white/10 bg-white/5 p-1">
+                      <img
+                        src={URL.createObjectURL(reviewImage)}
+                        alt="Preview"
+                        className="w-full max-h-32 object-cover rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setReviewImage(null)}
+                        className="absolute top-2 right-2 p-1 rounded-full bg-black/75 text-white hover:bg-neutral-800 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {submittingReview && reviewUploadProgress > 0 && (
+                  <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                    <div
+                      className="bg-sky-500 h-full transition-all duration-300"
+                      style={{ width: `${reviewUploadProgress}%` }}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submittingReview}
+                  className="w-full py-3 rounded-xl bg-white text-black font-semibold hover:bg-neutral-200 transition-all text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {submittingReview ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Review'
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Lightbox modal for review attachment image zoom */}
       <AnimatePresence>

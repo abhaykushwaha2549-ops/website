@@ -509,6 +509,11 @@ app.delete('/api/files/:id', requireAuth, async (req, res) => {
 // SUBSCRIPTION & PLANS ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
+// GET /api/status (public)
+app.get('/api/status', (_, res) => {
+  res.json({ useSupabase: USE_SUPABASE });
+});
+
 // GET /api/plans (public)
 app.get('/api/plans', async (req, res) => {
   try {
