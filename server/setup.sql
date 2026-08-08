@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS files (
   name           TEXT        NOT NULL,
   original_name  TEXT        NOT NULL,
   storage_path   TEXT        NOT NULL,
-  device_type    TEXT        NOT NULL CHECK (device_type IN ('android','iphone','tv','desktop')),
+  device_type    TEXT        NOT NULL CHECK (device_type IN ('android','iphone','tv','desktop','macbook')),
   size           BIGINT      NOT NULL DEFAULT 0,
   size_formatted TEXT        NOT NULL DEFAULT '',
   downloads      INTEGER     NOT NULL DEFAULT 0,
