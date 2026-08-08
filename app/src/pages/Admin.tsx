@@ -32,6 +32,7 @@ import {
   Plus,
   Key,
   Star,
+  Laptop,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -77,6 +78,16 @@ const deviceTypeConfig = {
     border: 'border-sky-500/20',
     gradient: 'from-sky-500 to-blue-600',
     dot: 'bg-sky-400',
+  },
+  macbook: {
+    label: 'MacBook App',
+    shortLabel: 'MacBook',
+    icon: Laptop,
+    color: 'text-rose-400',
+    bg: 'bg-rose-500/10',
+    border: 'border-rose-500/20',
+    gradient: 'from-rose-500 to-pink-600',
+    dot: 'bg-rose-400',
   },
 } as const;
 

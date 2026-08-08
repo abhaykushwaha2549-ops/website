@@ -33,6 +33,7 @@ import {
   Star,
   ChevronDown,
   ShoppingCart,
+  Laptop,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -74,6 +75,15 @@ const deviceTypeConfig = {
     bgColor: 'bg-sky-500/10',
     borderColor: 'border-sky-500/20',
     textColor: 'text-sky-400',
+  },
+  macbook: {
+    label: 'MacBook App',
+    description: 'Beautifully native experience optimized for MacBook & Apple macOS.',
+    icon: Laptop,
+    color: 'from-rose-500 to-pink-600',
+    bgColor: 'bg-rose-500/10',
+    borderColor: 'border-rose-500/20',
+    textColor: 'text-rose-400',
   },
 } as const;
 
@@ -625,9 +635,9 @@ export default function Home() {
   // Get the latest file for each device type that has at least one file, filtered by plan
   const allowedTypesByPlan = (() => {
     if (subscriptionStatus !== 'approved' || userPlan === null) return [];
-    if (userPlan === 149) return ['android', 'iphone', 'tv', 'desktop'];
-    if (userPlan === 109) return ['android', 'iphone', 'desktop'];
-    if (userPlan === 49) return ['desktop'];
+    if (userPlan === 149) return ['android', 'iphone', 'tv', 'desktop', 'macbook'];
+    if (userPlan === 109) return ['android', 'iphone', 'desktop', 'macbook'];
+    if (userPlan === 49) return ['desktop', 'macbook'];
     return [];
   })();
 
@@ -1378,7 +1388,9 @@ export default function Home() {
                   ? 'md:grid-cols-2 max-w-2xl mx-auto'
                   : availableDeviceTypes.length === 3
                   ? 'md:grid-cols-3'
-                  : 'md:grid-cols-2 lg:grid-cols-4'
+                  : availableDeviceTypes.length === 4
+                  ? 'md:grid-cols-2 lg:grid-cols-4'
+                  : 'md:grid-cols-2 lg:grid-cols-5'
               }`}
             >
               {availableDeviceTypes.map((type, index) => {
