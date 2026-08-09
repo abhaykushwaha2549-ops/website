@@ -707,9 +707,14 @@ export default function Home() {
 
   const handleDownload = (file: ApiFile) => {
     setDownloadingId(file.id);
-    // Open download URL in a new tab — backend redirects to signed Supabase URL
-    // or streams directly from disk in dev mode
-    window.open(`${API_BASE}/api/download/${file.id}`, '_blank');
+    // Use programmatically clicked anchor to trigger download directly in current tab,
+    // avoiding browser pop-up blocker blocking redirect chains
+    const link = document.createElement('a');
+    link.href = `${API_BASE}/api/download/${file.id}`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     setTimeout(() => setDownloadingId(null), 2000);
   };
 
