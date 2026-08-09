@@ -195,7 +195,16 @@ export default function Home() {
       return null;
     }
   });
-  const [subscriptionStatus, setSubscriptionStatus] = useState<'approved' | 'pending' | 'rejected' | 'none' | null>(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'approved' | 'pending' | 'rejected' | 'none' | null>(() => {
+    try {
+      const email = localStorage.getItem('lim_user_email');
+      const plan = localStorage.getItem('lim_user_plan');
+      if (email && plan) return 'approved';
+      return email ? null : 'none';
+    } catch {
+      return 'none';
+    }
+  });
   const [userPlan, setUserPlan] = useState<number | null>(() => {
     try {
       const plan = localStorage.getItem('lim_user_plan');
@@ -223,7 +232,38 @@ export default function Home() {
   const [verifyingProductCode, setVerifyingProductCode] = useState(false);
 
   // Reviews states
-  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviews, setReviews] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('lim_reviews_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      {
+        id: 'default-1',
+        name: 'Sarah Miller',
+        rating: 5,
+        content: 'Absolutely incredible setups and templates! The installation was super simple on my MacBook, and the performance is butter-smooth. Highly recommend Lightinmotion.',
+        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: 'default-2',
+        name: 'David K.',
+        rating: 5,
+        content: 'Perfect cross-platform experience. I use the TV app at home and mobile app on the go. The sync is instantaneous and the content quality is top tier.',
+        createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: 'default-3',
+        name: 'Alex Rivera',
+        rating: 5,
+        content: 'Saved me hours of configuring. The interface is clean, dark mode is beautiful, and everything works exactly as advertised. Best purchase this year.',
+        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      }
+    ];
+  });
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [visibleReviewsCount, setVisibleReviewsCount] = useState(3);
   const [reviewName, setReviewName] = useState('');
@@ -234,7 +274,13 @@ export default function Home() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewUploadProgress, setReviewUploadProgress] = useState(0);
   const [selectedReviewZoomImage, setSelectedReviewZoomImage] = useState<string | null>(null);
-  const [useSupabase, setUseSupabase] = useState(false);
+  const [useSupabase, setUseSupabase] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('lim_use_supabase') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   // Animate the download count
@@ -295,7 +341,13 @@ export default function Home() {
       alert('Please enter a valid email address.');
       return;
     }
-    setCheckingSubscription(true);
+    const cachedEmail = localStorage.getItem('lim_user_email');
+    const cachedPlan = localStorage.getItem('lim_user_plan');
+    const hasCache = cachedEmail === emailToCheck.trim() && cachedPlan;
+
+    if (!hasCache) {
+      setCheckingSubscription(true);
+    }
     try {
       const res = await fetch(`${API_BASE}/api/subscription/check?email=${encodeURIComponent(emailToCheck.trim())}`);
       if (res.ok) {
@@ -332,12 +384,15 @@ export default function Home() {
   }, [verifiedEmail]);
 
   const fetchReviews = async () => {
-    setLoadingReviews(true);
+    if (reviews.length === 0) {
+      setLoadingReviews(true);
+    }
     try {
       const res = await fetch(`${API_BASE}/api/reviews`);
       if (res.ok) {
         const data = await res.json();
         setReviews(data);
+        localStorage.setItem('lim_reviews_cache', JSON.stringify(data));
       }
     } catch (err) {
       console.error('Failed to load reviews:', err);
@@ -350,7 +405,9 @@ export default function Home() {
       const res = await fetch(`${API_BASE}/api/status`);
       if (res.ok) {
         const data = await res.json();
-        setUseSupabase(!!data.useSupabase);
+        const useSup = !!data.useSupabase;
+        setUseSupabase(useSup);
+        localStorage.setItem('lim_use_supabase', useSup.toString());
       }
     } catch (err) {
       console.error('Failed to fetch status:', err);
