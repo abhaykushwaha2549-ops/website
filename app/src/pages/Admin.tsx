@@ -89,6 +89,16 @@ const deviceTypeConfig = {
     gradient: 'from-rose-500 to-pink-600',
     dot: 'bg-rose-400',
   },
+  trial: {
+    label: 'Trial App',
+    shortLabel: 'Trial',
+    icon: Zap,
+    color: 'text-amber-400',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/20',
+    gradient: 'from-amber-500 to-orange-600',
+    dot: 'bg-amber-400',
+  },
 } as const;
 
 type DeviceType = keyof typeof deviceTypeConfig;

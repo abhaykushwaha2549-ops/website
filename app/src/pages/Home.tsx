@@ -85,6 +85,15 @@ const deviceTypeConfig = {
     borderColor: 'border-rose-500/20',
     textColor: 'text-rose-400',
   },
+  trial: {
+    label: 'Trial App',
+    description: 'Experience Lightinmotion before subscribing. Supported on PC and mobile.',
+    icon: Zap,
+    color: 'from-amber-500 to-orange-600',
+    bgColor: 'bg-amber-500/10',
+    borderColor: 'border-amber-500/20',
+    textColor: 'text-amber-400',
+  },
 } as const;
 
 type DeviceType = keyof typeof deviceTypeConfig;
@@ -705,6 +714,19 @@ export default function Home() {
   const getLatestFile = (type: DeviceType) =>
     files.find((f) => f.deviceType === type) ?? null;
 
+  const getTrialFile = () => {
+    const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const trialFiles = files.filter((f) => f.deviceType === 'trial');
+    if (trialFiles.length === 0) return null;
+
+    if (isMobile) {
+      const apk = trialFiles.find((f) => f.originalName.toLowerCase().endsWith('.apk') || f.filename.toLowerCase().endsWith('.apk'));
+      if (apk) return apk;
+    }
+    const pc = trialFiles.find((f) => !f.originalName.toLowerCase().endsWith('.apk') && !f.filename.toLowerCase().endsWith('.apk'));
+    return pc || trialFiles[0];
+  };
+
   const handleDownload = (file: ApiFile) => {
     setDownloadingId(file.id);
     // Use programmatically clicked anchor to trigger download directly in current tab,
@@ -869,6 +891,20 @@ export default function Home() {
                     <ShoppingCart className="w-4 h-4" />
                     Visit Store
                   </a>
+                  <button
+                    onClick={() => {
+                      const file = getTrialFile();
+                      if (file) {
+                        handleDownload(file);
+                      } else {
+                        alert('Trial version is currently being prepared. Check back shortly!');
+                      }
+                    }}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-medium hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg shadow-orange-500/20"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Trial App
+                  </button>
                 </div>
 
                 {/* Stats */}

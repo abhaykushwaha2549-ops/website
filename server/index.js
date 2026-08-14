@@ -330,7 +330,7 @@ app.post('/api/upload/finalize', requireAuth, async (req, res) => {
 
   const { deviceType, displayName, storagePath, originalName, size } = req.body;
 
-  const validTypes = ['android', 'iphone', 'tv', 'desktop', 'macbook'];
+  const validTypes = ['android', 'iphone', 'tv', 'desktop', 'macbook', 'trial'];
   if (!deviceType || !validTypes.includes(deviceType)) {
     return res.status(400).json({ error: 'Valid deviceType is required' });
   }
@@ -380,7 +380,7 @@ app.post('/api/upload', requireAuth, (req, res, next) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
 
   const { deviceType, displayName } = req.body;
-  const validTypes = ['android', 'iphone', 'tv', 'desktop', 'macbook'];
+  const validTypes = ['android', 'iphone', 'tv', 'desktop', 'macbook', 'trial'];
   if (!deviceType || !validTypes.includes(deviceType)) {
     if (req.file.path) fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: 'Valid deviceType is required' });
