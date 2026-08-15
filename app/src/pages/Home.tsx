@@ -742,6 +742,7 @@ export default function Home() {
 
   // Stats derived from real data
   const platformCount = availableDeviceTypes.length || 4;
+  const trialFile = getTrialFile();
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -891,20 +892,23 @@ export default function Home() {
                     <ShoppingCart className="w-4 h-4" />
                     Visit Store
                   </a>
-                  <button
-                    onClick={() => {
-                      const file = getTrialFile();
-                      if (file) {
-                        handleDownload(file);
-                      } else {
-                        alert('Trial version is currently being prepared. Check back shortly!');
-                      }
-                    }}
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-medium hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg shadow-orange-500/20"
-                  >
-                    <Zap className="w-4 h-4" />
-                    Trial App
-                  </button>
+                  {trialFile ? (
+                    <a
+                      href={`${API_BASE}/api/download/${trialFile.id}`}
+                      className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-medium hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg shadow-orange-500/20"
+                    >
+                      <Zap className="w-4 h-4" />
+                      Trial App
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => alert('Trial version is currently being prepared. Check back shortly!')}
+                      className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-medium hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg shadow-orange-500/20"
+                    >
+                      <Zap className="w-4 h-4" />
+                      Trial App
+                    </button>
+                  )}
                 </div>
 
                 {/* Stats */}
