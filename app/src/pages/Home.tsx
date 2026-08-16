@@ -716,14 +716,22 @@ export default function Home() {
 
   const getTrialFile = () => {
     const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const trialFiles = files.filter((f) => f.deviceType === 'trial');
+    const trialFiles = files.filter((f) => f && f.deviceType === 'trial');
     if (trialFiles.length === 0) return null;
 
     if (isMobile) {
-      const apk = trialFiles.find((f) => f.originalName.toLowerCase().endsWith('.apk') || f.filename.toLowerCase().endsWith('.apk'));
+      const apk = trialFiles.find((f) => 
+        f.originalName?.toLowerCase()?.endsWith('.apk') || 
+        f.filename?.toLowerCase()?.endsWith('.apk') ||
+        f.name?.toLowerCase()?.endsWith('.apk')
+      );
       if (apk) return apk;
     }
-    const pc = trialFiles.find((f) => !f.originalName.toLowerCase().endsWith('.apk') && !f.filename.toLowerCase().endsWith('.apk'));
+    const pc = trialFiles.find((f) => 
+      !(f.originalName?.toLowerCase()?.endsWith('.apk')) && 
+      !(f.filename?.toLowerCase()?.endsWith('.apk')) &&
+      !(f.name?.toLowerCase()?.endsWith('.apk'))
+    );
     return pc || trialFiles[0];
   };
 
