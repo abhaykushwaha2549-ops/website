@@ -368,7 +368,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
   const [selectedScreenshotUrl, setSelectedScreenshotUrl] = useState<string | null>(null);
 
   // Plans/QRs states
-  const [plans, setPlans] = useState<{ 49: string | null; 109: string | null; 149: string | null }>({ 49: null, 109: null, 149: null });
+  const [plans, setPlans] = useState<{ 99: string | null; 399: string | null; 599: string | null }>({ 99: null, 399: null, 599: null });
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [uploadingQrPlan, setUploadingQrPlan] = useState<number | null>(null);
   const [uploadingQrProgress, setUploadingQrProgress] = useState(0);
@@ -1464,8 +1464,8 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                 </div>
               ) : (
                 <div className="grid md:grid-cols-3 gap-6">
-                  {([49, 109, 149] as const).map((price) => {
-                    const qrUrl = plans[price];
+                  {([99, 399, 599] as const).map((price) => {
+                    const qrUrl = (plans as any)[price];
                     const isUploading = uploadingQrPlan === price;
                     const fileInputId = `qr-upload-input-${price}`;
 
@@ -1475,7 +1475,7 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                           <CardTitle className="text-white text-base flex justify-between items-center">
                             <span>Plan {price} /-</span>
                             <span className="text-xs text-neutral-500 font-normal">
-                              {price === 149 ? 'All Apps' : price === 109 ? 'Mobile & Desktop' : 'Desktop Only'}
+                              {price === 599 ? 'All Apps Lifetime' : price === 399 ? 'Mobile & Desktop' : 'Desktop Only'}
                             </span>
                           </CardTitle>
                         </CardHeader>

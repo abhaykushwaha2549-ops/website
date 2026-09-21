@@ -92,12 +92,12 @@ if (!USE_SUPABASE) {
   if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
   if (!fs.existsSync(REVIEWS_DIR)) fs.mkdirSync(REVIEWS_DIR, { recursive: true });
   if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 49: null, 109: null, 149: null }, productCodes: [], reviews: [] }, null, 2));
+    fs.writeFileSync(DB_PATH, JSON.stringify({ files: [], totalDownloads: 0, subscriptions: [], plans: { 99: null, 399: null, 599: null }, productCodes: [], reviews: [] }, null, 2));
   } else {
     const _db = readDB();
     if (typeof _db.totalDownloads !== 'number') { _db.totalDownloads = 0; }
     if (!_db.subscriptions) { _db.subscriptions = []; }
-    if (!_db.plans) { _db.plans = { 49: null, 109: null, 149: null }; }
+    if (!_db.plans) { _db.plans = { 99: null, 399: null, 599: null }; }
     if (!_db.productCodes) { _db.productCodes = []; }
     if (!_db.reviews) { _db.reviews = []; }
     writeDB(_db);
@@ -517,7 +517,7 @@ app.get('/api/status', (_, res) => {
 // GET /api/plans (public)
 app.get('/api/plans', async (req, res) => {
   try {
-    const plansData = { 49: null, 109: null, 149: null };
+    const plansData = { 99: null, 399: null, 599: null };
     
     if (USE_SUPABASE) {
       const { data, error } = await supabase
@@ -544,9 +544,9 @@ app.get('/api/plans', async (req, res) => {
       }
     } else {
       const db = readDB();
-      const plans = db.plans || { 49: null, 109: null, 149: null };
+      const plans = db.plans || { 99: null, 399: null, 599: null };
       const baseUrl = `${req.protocol}://${req.get('host')}`;
-      for (const price of [49, 109, 149]) {
+      for (const price of [99, 399, 599, 49, 109, 149]) {
         if (plans[price]) {
           plansData[price] = `${baseUrl}/uploads/qrs/${plans[price]}`;
         }
@@ -596,7 +596,7 @@ app.post('/api/admin/plans/qr/init', requireAuth, async (req, res) => {
 app.post('/api/admin/plans/qr/finalize', requireAuth, async (req, res) => {
   const { price, storagePath } = req.body;
   if (!price || !storagePath) return res.status(400).json({ error: 'price and storagePath are required' });
-  if (![49, 109, 149].includes(Number(price))) return res.status(400).json({ error: 'Invalid price' });
+  if (![99, 399, 599, 49, 109, 149].includes(Number(price))) return res.status(400).json({ error: 'Invalid price' });
   
   try {
     const { data, error } = await supabase
@@ -621,13 +621,13 @@ app.post('/api/admin/plans/qr/local', requireAuth, (req, res, next) => {
 }, (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
   const { price } = req.body;
-  if (!price || ![49, 109, 149].includes(Number(price))) {
+  if (!price || ![99, 399, 599, 49, 109, 149].includes(Number(price))) {
     if (req.file.path) fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: 'Valid price is required' });
   }
   
   const db = readDB();
-  db.plans = db.plans || { 49: null, 109: null, 149: null };
+  db.plans = db.plans || { 99: null, 399: null, 599: null };
   const oldFile = db.plans[price];
   if (oldFile) {
     const oldPath = path.join(QRS_DIR, oldFile);
@@ -722,7 +722,7 @@ app.post('/api/subscription/finalize', async (req, res) => {
   if (!name || !email || !planPrice || !storagePath) {
     return res.status(400).json({ error: 'name, email, planPrice, storagePath are required' });
   }
-  if (![49, 109, 149].includes(Number(planPrice))) {
+  if (![99, 399, 599, 49, 109, 149].includes(Number(planPrice))) {
     return res.status(400).json({ error: 'Invalid plan price' });
   }
   
@@ -1058,7 +1058,7 @@ app.post('/api/subscription/verify-code', async (req, res) => {
           id: uuidv4(),
           name: 'Product Owner',
           email: cleanEmail,
-          plan_price: 149,
+          plan_price: 599,
           screenshot_path: `product-code: ${cleanCode}`,
           status: 'approved',
           created_at: now,
@@ -1086,7 +1086,7 @@ app.post('/api/subscription/verify-code', async (req, res) => {
         id: subIdx !== -1 ? db.subscriptions[subIdx].id : uuidv4(),
         name: 'Product Owner',
         email: cleanEmail,
-        planPrice: 149,
+        planPrice: 599,
         filename: 'product-code',
         screenshotUrl: 'product-code',
         status: 'approved',

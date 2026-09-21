@@ -231,7 +231,7 @@ export default function Home() {
   const [checkoutEmail, setCheckoutEmail] = useState('');
   const [checkoutScreenshot, setCheckoutScreenshot] = useState<File | null>(null);
   const [uploadingScreenshotProgress, setUploadingScreenshotProgress] = useState(0);
-  const [plansQrs, setPlansQrs] = useState<Record<number, string | null>>({ 49: null, 109: null, 149: null });
+  const [plansQrs, setPlansQrs] = useState<Record<number, string | null>>({ 99: null, 399: null, 599: null });
   const [subGateTab, setSubGateTab] = useState<'subscribe' | 'access'>('subscribe');
   const [accessEmailInput, setAccessEmailInput] = useState('');
 
@@ -685,9 +685,9 @@ export default function Home() {
         alert('Product Code Verified successfully! Unlocked all downloads.');
         setVerifiedEmail(productCodeEmail.trim().toLowerCase());
         setSubscriptionStatus('approved');
-        setUserPlan(149);
+        setUserPlan(599);
         localStorage.setItem('lim_user_email', productCodeEmail.trim().toLowerCase());
-        localStorage.setItem('lim_user_plan', '149');
+        localStorage.setItem('lim_user_plan', '599');
       } else {
         const errData = await res.json();
         alert(errData.error || 'Failed to verify product code.');
@@ -701,9 +701,9 @@ export default function Home() {
   // Get the latest file for each device type that has at least one file, filtered by plan
   const allowedTypesByPlan = (() => {
     if (subscriptionStatus !== 'approved' || userPlan === null) return [];
-    if (userPlan === 149) return ['android', 'iphone', 'tv', 'desktop', 'macbook'];
-    if (userPlan === 109) return ['android', 'iphone', 'desktop', 'macbook'];
-    if (userPlan === 49) return ['desktop', 'macbook'];
+    if (userPlan >= 599 || userPlan === 149) return ['android', 'iphone', 'tv', 'desktop', 'macbook'];
+    if (userPlan >= 399 || userPlan === 109) return ['android', 'iphone', 'desktop', 'macbook'];
+    if (userPlan >= 99 || userPlan === 49) return ['desktop', 'macbook'];
     return [];
   })();
 
@@ -1181,21 +1181,21 @@ export default function Home() {
                       <div className="grid gap-6 md:grid-cols-3">
                         {[
                           {
-                            price: 49,
+                            price: 99,
                             title: 'Desktop App Plan',
                             desc: 'Essential plan designed exclusively for computer users.',
                             benefits: ['Access to Desktop App', 'Windows, macOS, Linux', 'Regular software updates'],
                           },
                           {
-                            price: 109,
+                            price: 399,
                             title: 'Mobile & Desktop Plan',
                             desc: 'Dual access plan for both mobile and desktop convenience.',
                             benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Regular software updates'],
                           },
                           {
-                            price: 149,
-                            title: 'All-in-One Full Plan',
-                            desc: 'All-inclusive premium access for every device.',
+                            price: 599,
+                            title: 'All Apps Lifetime Plan',
+                            desc: 'All-inclusive lifetime access for every device.',
                             benefits: ['Access to Android Mobile App', 'Access to Desktop App', 'Access to TV App (Android TV, Fire TV)', 'Priority customer support', 'Regular software updates'],
                           },
                         ].map((plan) => (
