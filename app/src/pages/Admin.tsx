@@ -144,7 +144,7 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
         setError(data.error || 'Incorrect email or password');
       }
     } catch {
-      setError('Cannot reach server. Make sure the backend is running on port 3001.');
+      setError('Cannot reach server. The backend might be starting up from sleep mode; please try again in a few seconds.');
     }
     setLoading(false);
   };

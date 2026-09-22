@@ -1029,7 +1029,7 @@ export default function Home() {
                     <AlertCircle className="w-6 h-6 text-red-400" />
                   </div>
                   <p className="text-sm text-neutral-400">Could not reach the server</p>
-                  <p className="text-xs text-neutral-600">Make sure the backend is running on port 3001</p>
+                  <p className="text-xs text-neutral-600">The backend server is waking up. Please refresh in a few seconds.</p>
                 </motion.div>
               )}
 
