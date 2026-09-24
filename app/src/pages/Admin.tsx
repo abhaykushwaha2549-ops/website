@@ -385,6 +385,11 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
+  // iPhone Web App states
+  const [iphoneUrlInput, setIphoneUrlInput] = useState('');
+  const [iphoneDisplayName, setIphoneDisplayName] = useState('');
+  const [savingIphoneUrl, setSavingIphoneUrl] = useState(false);
+
   // ── Fetch files
   const fetchFiles = async () => {
     try {
@@ -392,11 +397,54 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
       if (res.ok) {
         const data = await res.json();
         setFiles(data);
+        const iphoneFile = data.find((f: any) => f.deviceType === 'iphone');
+        if (iphoneFile) {
+          setIphoneUrlInput(iphoneFile.externalUrl || iphoneFile.storagePath || iphoneFile.originalName || '');
+          setIphoneDisplayName(iphoneFile.name || 'iPhone Web App');
+        }
       }
     } catch {
       showNotification('Failed to load files. Is the server running?', 'error');
     }
     setLoading(false);
+  };
+
+  const handleSaveIphoneUrl = async () => {
+    if (!iphoneUrlInput.trim()) {
+      showNotification('Please enter a valid iPhone Web App URL.', 'error');
+      return;
+    }
+    let url = iphoneUrlInput.trim();
+    if (!/^https?:\/\//i.test(url)) {
+      url = 'https://' + url;
+    }
+
+    setSavingIphoneUrl(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/link/finalize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          deviceType: 'iphone',
+          displayName: iphoneDisplayName.trim() || 'Lightinmotion iOS Web App',
+          externalUrl: url,
+        }),
+      });
+
+      if (res.ok) {
+        showNotification('iPhone Web App URL saved successfully!');
+        fetchFiles();
+      } else {
+        const err = await res.json();
+        showNotification(err.error || 'Failed to save iPhone Web App link.', 'error');
+      }
+    } catch {
+      showNotification('Error saving iPhone Web App link.', 'error');
+    }
+    setSavingIphoneUrl(false);
   };
 
   // ── Fetch subscriptions
@@ -1096,66 +1144,116 @@ function AdminDashboard({ token, onLogout }: { token: string; onLogout: () => vo
                   />
                 </div>
 
-                {/* Drop Zone */}
-                <div
-                  id="upload-dropzone"
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                  onClick={() => !uploading && inputRef.current?.click()}
-                  className={`relative border-2 border-dashed rounded-xl p-8 md:p-12 text-center transition-all duration-200 ${
-                    uploading
-                      ? 'border-amber-500/40 bg-amber-500/5 cursor-default'
-                      : dragActive
-                      ? 'border-sky-500 bg-sky-500/5 cursor-copy'
-                      : selectedDeviceType
-                      ? 'border-white/15 hover:border-white/25 hover:bg-white/[0.02] cursor-pointer'
-                      : 'border-white/5 opacity-50 cursor-not-allowed'
-                  }`}
-                >
-                  <input
-                    ref={inputRef}
-                    type="file"
-                    className="hidden"
-                    accept=".apk,.exe,.dmg,.zip,.ipa"
-                    onChange={handleChange}
-                  />
+                {selectedDeviceType === 'iphone' ? (
+                  <div className="bg-white/[0.02] border border-white/10 rounded-xl p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                        <Smartphone className="w-5 h-5 text-purple-400" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-white">iPhone Web App Link Configurator</h4>
+                        <p className="text-xs text-neutral-400">
+                          Enter your website / PWA URL for iPhone users. iOS users will be shown this link with an interactive "Add to Home Screen" tutorial guide.
+                        </p>
+                      </div>
+                    </div>
 
-                  {uploading ? (
-                    <div className="space-y-4">
-                      <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 flex items-center justify-center">
-                        <Upload className="w-5 h-5 text-amber-400 animate-bounce" />
+                    <div className="grid gap-4 md:grid-cols-2 pt-2">
+                      <div>
+                        <label className="text-xs text-neutral-400 block mb-1.5 font-medium">App Display Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Lightinmotion iOS Web App"
+                          value={iphoneDisplayName}
+                          onChange={(e) => setIphoneDisplayName(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-purple-500 transition-colors"
+                        />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-white mb-1">Uploading {uploadingFileName}</p>
-                        <div className="max-w-xs mx-auto bg-white/5 rounded-full h-1.5 overflow-hidden">
-                          <motion.div
-                            className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(uploadProgress, 100)}%` }}
-                            transition={{ ease: 'linear' }}
-                          />
+                        <label className="text-xs text-neutral-400 block mb-1.5 font-medium">iPhone Web App URL *</label>
+                        <input
+                          type="url"
+                          placeholder="https://your-iphone-webapp-url.com"
+                          value={iphoneUrlInput}
+                          onChange={(e) => setIphoneUrlInput(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-xs focus:outline-none focus:border-purple-500 transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end pt-2">
+                      <button
+                        onClick={handleSaveIphoneUrl}
+                        disabled={savingIphoneUrl}
+                        className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-semibold text-xs flex items-center gap-2 transition-all shadow-lg shadow-purple-500/20 disabled:opacity-50"
+                      >
+                        {savingIphoneUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        Save iPhone Web App Link
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Drop Zone */
+                  <div
+                    id="upload-dropzone"
+                    onDragEnter={handleDrag}
+                    onDragLeave={handleDrag}
+                    onDragOver={handleDrag}
+                    onDrop={handleDrop}
+                    onClick={() => !uploading && inputRef.current?.click()}
+                    className={`relative border-2 border-dashed rounded-xl p-8 md:p-12 text-center transition-all duration-200 ${
+                      uploading
+                        ? 'border-amber-500/40 bg-amber-500/5 cursor-default'
+                        : dragActive
+                        ? 'border-sky-500 bg-sky-500/5 cursor-copy'
+                        : selectedDeviceType
+                        ? 'border-white/15 hover:border-white/25 hover:bg-white/[0.02] cursor-pointer'
+                        : 'border-white/5 opacity-50 cursor-not-allowed'
+                    }`}
+                  >
+                    <input
+                      ref={inputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".apk,.exe,.dmg,.zip,.ipa"
+                      onChange={handleChange}
+                    />
+
+                    {uploading ? (
+                      <div className="space-y-4">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 flex items-center justify-center">
+                          <Upload className="w-5 h-5 text-amber-400 animate-bounce" />
                         </div>
-                        <p className="text-xs text-neutral-500 mt-2">{Math.min(Math.round(uploadProgress), 100)}%</p>
+                        <div>
+                          <p className="text-sm font-medium text-white mb-1">Uploading {uploadingFileName}</p>
+                          <div className="max-w-xs mx-auto bg-white/5 rounded-full h-1.5 overflow-hidden">
+                            <motion.div
+                              className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min(uploadProgress, 100)}%` }}
+                              transition={{ ease: 'linear' }}
+                            />
+                          </div>
+                          <p className="text-xs text-neutral-500 mt-2">{Math.min(Math.round(uploadProgress), 100)}%</p>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center">
-                        <Upload className={`w-5 h-5 ${dragActive ? 'text-sky-400' : 'text-neutral-400'}`} />
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-white/5 flex items-center justify-center">
+                          <Upload className={`w-5 h-5 ${dragActive ? 'text-sky-400' : 'text-neutral-400'}`} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {dragActive ? 'Drop file here' : selectedDeviceType ? 'Click or drag file to upload' : 'Select a device type first'}
+                          </p>
+                          <p className="text-xs text-neutral-600 mt-1">
+                            Supports: APK, EXE, DMG, ZIP, IPA — Max 500 MB
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-white">
-                          {dragActive ? 'Drop file here' : selectedDeviceType ? 'Click or drag file to upload' : 'Select a device type first'}
-                        </p>
-                        <p className="text-xs text-neutral-600 mt-1">
-                          Supports: APK, EXE, DMG, ZIP, IPA — Max 500 MB
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

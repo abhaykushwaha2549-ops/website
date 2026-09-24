@@ -204,17 +204,23 @@ function formatFileSize(bytes) {
 
 // Normalise a Supabase DB row to the same shape the frontend expects
 function normaliseFile(row) {
+  const originalName = row.original_name ?? row.originalName;
+  const storagePath  = row.storage_path  ?? row.storagePath;
+  const extUrl       = row.external_url  ?? row.externalUrl ?? 
+    (originalName?.startsWith('http') ? originalName : (storagePath?.startsWith('http') ? storagePath : null));
+
   return {
     id:           row.id,
     name:         row.name,
-    originalName: row.original_name  ?? row.originalName,
-    storagePath:  row.storage_path   ?? row.storagePath,
+    originalName: originalName,
+    storagePath:  storagePath,
     filename:     row.filename,          // local mode only
     deviceType:   row.device_type    ?? row.deviceType,
     size:         row.size,
     sizeFormatted:row.size_formatted ?? row.sizeFormatted,
     uploadedAt:   row.uploaded_at    ?? row.uploadedAt,
     downloads:    row.downloads      ?? 0,
+    externalUrl:  extUrl,
   };
 }
 
@@ -365,6 +371,64 @@ app.post('/api/upload/finalize', requireAuth, async (req, res) => {
     }
 
     return res.json(normaliseFile(data));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/link/finalize (protected) ──────────────────────────────────
+app.post('/api/link/finalize', requireAuth, async (req, res) => {
+  const { deviceType, displayName, externalUrl } = req.body;
+
+  const validTypes = ['android', 'iphone', 'tv', 'desktop', 'macbook', 'trial'];
+  if (!deviceType || !validTypes.includes(deviceType)) {
+    return res.status(400).json({ error: 'Valid deviceType is required' });
+  }
+  if (!externalUrl) {
+    return res.status(400).json({ error: 'externalUrl is required' });
+  }
+
+  try {
+    if (USE_SUPABASE) {
+      const { data, error: dbErr } = await supabase
+        .from('files')
+        .insert({
+          name:          displayName || 'iPhone Web App',
+          original_name: externalUrl,
+          storage_path:  externalUrl,
+          device_type:   deviceType,
+          size:          0,
+          size_formatted:'Web Link',
+          downloads:     0,
+        })
+        .select()
+        .single();
+
+      if (dbErr) {
+        return res.status(500).json({ error: dbErr.message });
+      }
+
+      return res.json(normaliseFile(data));
+    } else {
+      const db = readDB();
+      db.files = db.files || [];
+      const newFile = {
+        id:           uuidv4(),
+        name:         displayName || 'iPhone Web App',
+        originalName: externalUrl,
+        storagePath:  externalUrl,
+        filename:     externalUrl,
+        deviceType:   deviceType,
+        size:         0,
+        sizeFormatted:'Web Link',
+        uploadedAt:   new Date().toISOString(),
+        downloads:    0,
+        externalUrl:  externalUrl,
+      };
+      db.files.unshift(newFile);
+      writeDB(db);
+      return res.json(newFile);
+    }
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

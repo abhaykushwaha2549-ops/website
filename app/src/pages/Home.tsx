@@ -34,6 +34,7 @@ import {
   ChevronDown,
   ShoppingCart,
   Laptop,
+  ExternalLink,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────
@@ -107,6 +108,8 @@ interface ApiFile {
   size: number;
   sizeFormatted: string;
   uploadedAt: string;
+  externalUrl?: string | null;
+  storagePath?: string | null;
 }
 
 const features = [
@@ -239,6 +242,10 @@ export default function Home() {
   const [productCodeInput, setProductCodeInput] = useState('');
   const [productCodeEmail, setProductCodeEmail] = useState('');
   const [verifyingProductCode, setVerifyingProductCode] = useState(false);
+
+  // iPhone Web App Guide states
+  const [isIphoneGuideOpen, setIsIphoneGuideOpen] = useState(false);
+  const [iphoneGuideFile, setIphoneGuideFile] = useState<ApiFile | null>(null);
 
   // Reviews states
   const [reviews, setReviews] = useState<any[]>(() => {
@@ -1545,25 +1552,39 @@ export default function Home() {
                           <span className="text-xs text-neutral-500">{latestFile.sizeFormatted}</span>
                         </div>
 
-                        {/* Download button */}
-                        <button
-                          id={`download-${type}`}
-                          onClick={() => handleDownload(latestFile)}
-                          disabled={isDownloading}
-                          className={`w-full py-3 rounded-xl bg-gradient-to-r ${cfg.color} text-white font-medium flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-60`}
-                        >
-                          {isDownloading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Starting...
-                            </>
-                          ) : (
-                            <>
-                              <Download className="w-4 h-4" />
-                              Download
-                            </>
-                          )}
-                        </button>
+                        {/* Download / Access button */}
+                        {type === 'iphone' ? (
+                          <button
+                            id={`download-${type}`}
+                            onClick={() => {
+                              setIphoneGuideFile(latestFile);
+                              setIsIphoneGuideOpen(true);
+                            }}
+                            className={`w-full py-3 rounded-xl bg-gradient-to-r ${cfg.color} text-white font-medium flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.98] transition-all duration-200`}
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            Open Web App & Guide
+                          </button>
+                        ) : (
+                          <button
+                            id={`download-${type}`}
+                            onClick={() => handleDownload(latestFile)}
+                            disabled={isDownloading}
+                            className={`w-full py-3 rounded-xl bg-gradient-to-r ${cfg.color} text-white font-medium flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.98] transition-all duration-200 disabled:opacity-60`}
+                          >
+                            {isDownloading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Starting...
+                              </>
+                            ) : (
+                              <>
+                                <Download className="w-4 h-4" />
+                                Download
+                              </>
+                            )}
+                          </button>
+                        )}
 
                         {/* Upload date */}
                         <p className="text-[10px] text-neutral-700 text-center mt-3">
@@ -1979,6 +2000,129 @@ export default function Home() {
               onClick={(e) => e.stopPropagation()}
             />
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── iPhone Web App & Add to Home Screen Tutorial Guide Modal ── */}
+      <AnimatePresence>
+        {isIphoneGuideOpen && iphoneGuideFile && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsIphoneGuideOpen(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-xl bg-neutral-900 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6 overflow-y-auto max-h-[90vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setIsIphoneGuideOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-xl bg-white/5 text-neutral-400 hover:text-white transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Modal Header */}
+              <div className="flex items-center gap-3.5 border-b border-white/5 pb-4">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 flex-shrink-0">
+                  <Smartphone className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    iPhone Web App Access
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Add Lightinmotion directly to your iPhone Home Screen for a native app experience!
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Button Card */}
+              <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl p-5 text-center space-y-3">
+                <p className="text-xs text-indigo-300 font-medium">
+                  Tap below to open the official iPhone Web App:
+                </p>
+                <a
+                  href={iphoneGuideFile.externalUrl || iphoneGuideFile.storagePath || iphoneGuideFile.originalName || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2.5 w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-indigo-500/25 hover:scale-[1.01] active:scale-[0.99]"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open iPhone Web App
+                </a>
+              </div>
+
+              {/* Tutorial Step-by-Step Guide */}
+              <div className="space-y-4 pt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-2">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  How to Add to iPhone Home Screen
+                </h4>
+
+                <div className="grid gap-3">
+                  {/* Step 1 */}
+                  <div className="flex items-start gap-3.5 p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                    <div className="w-7 h-7 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                      1
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-semibold text-white">Open Link in Safari</h5>
+                      <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
+                        Tap the blue <strong className="text-white">"Open iPhone Web App"</strong> button above to launch the web app in Safari on your iPhone.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="flex items-start gap-3.5 p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                    <div className="w-7 h-7 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                      2
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-semibold text-white">Tap the Share Button</h5>
+                      <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
+                        At the bottom of Safari, tap the <strong className="text-white font-mono">Share</strong> button (the square icon with an arrow pointing up <span className="inline-block px-1.5 py-0.5 rounded bg-white/10 text-white font-sans text-[10px]">⎋ / [↑]</span>).
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="flex items-start gap-3.5 p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                    <div className="w-7 h-7 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                      3
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-semibold text-white">Select "Add to Home Screen"</h5>
+                      <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
+                        Scroll down the share options list and tap <strong className="text-white">"Add to Home Screen"</strong> (with the <span className="inline-block px-1.5 py-0.5 rounded bg-white/10 text-white font-sans text-[10px]">[+]</span> plus icon).
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className="flex items-start gap-3.5 p-4 rounded-xl bg-white/[0.03] border border-white/5">
+                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                      4
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-semibold text-emerald-400">Tap "Add" & Launch</h5>
+                      <p className="text-xs text-neutral-400 mt-0.5 leading-relaxed">
+                        Tap <strong className="text-white">"Add"</strong> in the top-right corner. The Lightinmotion app icon will now appear on your iPhone Home Screen, ready to launch like a native app!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
